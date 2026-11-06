@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文献详情 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <nav class="breadcrumb" id="breadcrumb"><a href="/">首页</a> / <a href="/archive">文献库</a></nav>
+      <div class="detail-layout" id="detail">
+        <div class="loading-row skeleton" style="height:380px"></div>
+        <div class="loading-row skeleton" style="height:380px"></div>
+      </div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('archive');
+      const { esc, qs, api, demoChip, fmtDate } = App;
+      const id = (location.pathname.match(/\/doc\/(\d+)/) || [])[1];
+      const host = qs('#detail');
+
+      if (!id) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 指 定</div><p>请从文献库选择一条记录。</p></div>`;
+        return;
+      }
+
+      try {
+        const d = await api(`/api/documents/${id}`);
+        document.title = `${d.title} · 海南当代艺术文献`;
+
+        qs('#breadcrumb').innerHTML = `
+          <a href="/">首页</a> / <a href="/archive">文献库</a> /
+          <a href="/archive?category=${encodeURIComponent(d.category)}">${esc(d.category)}</a> /
+          <span>${esc(d.code || '')}</span>`;
+
+        const rows = [];
+        const row = (label, value) => {
+          if (!value) return;
+          rows.push(`<dt>${label}</dt><dd>${value}</dd>`);
+        };
+        row('档案编号', esc(d.code || ''));
+        row('类目', esc(d.category));
+        row('作者', esc(d.author));
+        row('编者 / 出版', esc([d.publisher].filter(Boolean).join('；')));
+        row('出版时间', esc(d.pub_date));
+        row('年代', esc(d.year));
+        row('篇幅', esc(d.extent));
+        row('语言', esc(d.language));
+        row('来源', esc(d.source));
+        row('权利说明', esc(d.rights));
+        while (rows.length % 4 !== 0) rows.push('<dt></dt><dd></dd>');
+
+        const fileLink = d.file_path
+          ? `<a class="file-link" href="${esc(d.file_path)}" target="_blank" rel="noopener">
+               阅读原件 <span>${/\.pdf$/i.test(d.file_path) ? 'PDF' : 'FILE'}</span>
+             </a>`
+          : '';
+
+        const isPdf = d.file_path && /\.pdf$/i.test(d.file_path);
+
+        host.innerHTML = `
+          <aside class="detail-media">
+            <div class="detail-cover">
+              ${d.cover ? `<img src="${esc(d.cover)}" alt="${esc(d.title)}" />` : `<div class="cover-noimg serif" style="height:100%">${esc(d.title.slice(0, 1))}</div>`}
+            </div>
+            <div class="media-actions">
+              ${fileLink}
+              <button class="file-link" type="button" id="copy-citation">
+                复制引用格式 <span>${esc(d.code || '')}</span>
+              </button>
+            </div>
+          </aside>
+
+          <article class="detail-body">
+            <span class="code">${esc(d.code || '')}</span>${demoChip(d)}
+            <h1>${esc(d.title)}</h1>
+            ${d.title_en ? `<p class="detail-en">${esc(d.title_en)}</p>` : ''}
+
+            <dl class="meta-table">${rows.join('')}</dl>
+
+            ${d.summary ? `<section class="detail-section"><h3>摘要</h3><p class="abstract">${esc(d.summary)}</p></section>` : ''}
+            ${d.content ? `<section class="detail-section"><h3>正文 / 著录内容</h3><div class="prose">${esc(d.content)}</div></section>` : ''}
+
+            ${d.artists && d.artists.length ? `
+              <section class="detail-section">
+                <h3>关联艺术家</h3>
+                <div class="relation-list">
+                  ${d.artists.map((a) => `<a class="relation-link" href="/artist/${a.id}">${esc(a.name)}<em>${esc(App.lifespan(a.birth_year, a.death_year))}</em></a>`).join('')}
+                </div>
+              </section>` : ''}
+
+            ${d.exhibitions && d.exhibitions.length ? `
+              <section class="detail-section">
+                <h3>关联展览</h3>
+                <div class="relation-list">
+                  ${d.exhibitions.map((e) => `<a class="relation-link" href="/exhibition/${e.id}">${esc(e.title)}<em>${esc(e.year || '')}</em></a>`).join('')}
+                </div>
+              </section>` : ''}
+
+            ${d.tags && d.tags.length ? `
+              <section class="detail-section">
+                <h3>标签</h3>
+                <div class="tag-row">
+                  ${d.tags.map((t) => `<a class="tag" href="/archive?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
+                </div>
+              </section>` : ''}
+
+            ${isPdf ? `
+              <section class="detail-section">
+                <h3>原件阅览</h3>
+                <iframe src="${esc(d.file_path)}" title="原件预览" style="width:100%;height:720px;border:1px solid var(--rule);background:#fff"></iframe>
+              </section>` : ''}
+
+            ${d.related && d.related.length ? `
+              <section class="detail-section">
+                <h3>相关文献</h3>
+                <div class="related-list">
+                  ${d.related.map((r) => `
+                    <a class="related-item" href="/doc/${r.id}">
+                      <span class="code">${esc(r.code || '')}</span>
+                      <span>${esc(r.title)}</span>
+                      <span class="cat">${esc(r.category)} · ${esc(r.year || '')}</span>
+                    </a>`).join('')}
+                </div>
+              </section>` : ''}
+          </article>`;
+
+        const copyBtn = qs('#copy-citation');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', async () => {
+            const citation = `${d.author || '佚名'}：《${d.title}》，${d.publisher || '未刊'}，${d.year || '年份待考'}。海南当代艺术文献，档案编号 ${d.code}。`;
+            try {
+              await navigator.clipboard.writeText(citation);
+              App.toast('已复制引用格式');
+            } catch (err) {
+              App.toast(citation);
+            }
+          });
+        }
+      } catch (err) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 找 到</div><p>${esc(err.message)}</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

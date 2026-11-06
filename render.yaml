@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: hainan-contemporary-art-archive
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0

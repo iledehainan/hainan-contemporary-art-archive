@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+  <rect width="600" height="800" fill="#EFE9DC"/>
+  <rect x="26" y="26" width="548" height="748" fill="none" stroke="#1A1813" stroke-opacity="0.18"/>
+  <g font-family="'Noto Serif SC', serif" fill="#1A1813">
+    <text x="62" y="82" font-size="15" letter-spacing="4" fill-opacity="0.72">期刊与剪报</text>
+    <text x="62" y="700" font-size="14" letter-spacing="2" fill-opacity="0.55">HNCA-D-0008</text>
+    <text x="62" y="742" font-size="13" letter-spacing="1" fill-opacity="0.4">海南当代艺术文献 · 示例封面</text>
+    <text x="538" y="82" font-size="13" text-anchor="end" fill-opacity="0.45">HNCA</text>
+  </g>
+  <g><line x1="110" y1="214" x2="358" y2="214" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="136" y1="259" x2="422" y2="259" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="72" y1="304" x2="366" y2="304" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="98" y1="349" x2="430" y2="349" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="124" y1="394" x2="374" y2="394" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="150" y1="439" x2="438" y2="439" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><line x1="86" y1="484" x2="382" y2="484" stroke="#1A1813" stroke-opacity="0.35" stroke-width="1"/><circle cx="442" cy="394" r="48" fill="none" stroke="#9E3B27" stroke-opacity="0.55" stroke-width="1"/><circle cx="438" cy="430" r="68" fill="none" stroke="#1A1813" stroke-opacity="0.25" stroke-width="1"/><circle cx="434" cy="466" r="42" fill="none" stroke="#1A1813" stroke-opacity="0.25" stroke-width="1"/></g>
+  <rect x="452" y="712" width="26" height="26" fill="#9E3B27" fill-opacity="0.85"/>
+</svg>

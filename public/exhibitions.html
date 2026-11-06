@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>展览 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <span class="eyebrow">Exhibitions · 展览记录</span>
+        <h1>展览</h1>
+        <p class="page-desc">以时间为序整理海南当代艺术展览，并链接至展览图录、评论、请柬与现场影像等档案材料。</p>
+      </div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:24px 0 18px;border-bottom:1px solid var(--ink)">
+        <input class="admin-search" id="exh-q" type="search" placeholder="检索展览、场馆、策展人" style="max-width:320px" />
+        <select class="filter-select" id="exh-decade" style="max-width:180px">
+          <option value="">全部年代</option>
+        </select>
+        <span class="muted mono" id="exh-count" style="margin-left:auto;font-size:11.5px"></span>
+      </div>
+
+      <div id="exh-list" style="padding-bottom:60px"></div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('exhibitions');
+      const { esc, qs, api } = App;
+
+      function render(items) {
+        if (!items.length) {
+          qs('#exh-list').innerHTML = `<div class="empty"><div class="empty-mark">无 记 录</div><p>没有符合条件的展览。</p></div>`;
+          return;
+        }
+        qs('#exh-list').innerHTML = `<div class="row-list" style="border-top:0">${items
+          .map(
+            (e) => `
+          <a class="doc-row" href="/exhibition/${e.id}" style="grid-template-columns:104px minmax(0,1fr) 92px">
+            <span class="row-code">${esc(e.year || '——')}</span>
+            <span>
+              <h3>${esc(e.title)}${App.demoChip(e)}</h3>
+              <span class="row-meta">
+                <span>${esc(e.venue || '场馆待考')}</span>
+                ${e.city ? `<span>${esc(e.city)}</span>` : ''}
+                ${e.start_date ? `<span>${esc(App.fmtDate(e.start_date))}${e.end_date ? ' — ' + esc(App.fmtDate(e.end_date)) : ''}</span>` : ''}
+                ${e.curators ? `<span>策展 ${esc(e.curators)}</span>` : ''}
+              </span>
+              ${e.intro ? `<p class="row-sum">${esc(e.intro)}</p>` : ''}
+            </span>
+            <span class="row-code" style="text-align:right">${e.doc_count} 件文献</span>
+          </a>`
+          )
+          .join('')}</div>`;
+      }
+
+      let timer = null;
+      async function load() {
+        const p = new URLSearchParams();
+        const q = qs('#exh-q').value.trim();
+        const decade = qs('#exh-decade').value;
+        if (q) p.set('q', q);
+        if (decade) {
+          p.set('year_from', decade);
+          p.set('year_to', Number(decade) + 9);
+        }
+        p.set('page_size', '100');
+        try {
+          const data = await api(`/api/exhibitions?${p.toString()}`);
+          qs('#exh-count').textContent = `共 ${data.total} 场`;
+          render(data.items);
+        } catch (err) {
+          qs('#exh-list').innerHTML = `<div class="empty"><div class="empty-mark">连 接 失 败</div><p>${esc(err.message)}</p></div>`;
+        }
+      }
+
+      try {
+        const boot = await App.bootstrap();
+        const years = (boot.stats && boot.stats.years) || {};
+        const end = Math.floor(((years.to || new Date().getFullYear()) / 10)) * 10;
+        const start = Math.floor(((years.from || 1980) / 10)) * 10;
+        const opts = [];
+        for (let y = end; y >= start; y -= 10) opts.push(`<option value="${y}">${y} — ${y + 9}</option>`);
+        qs('#exh-decade').insertAdjacentHTML('beforeend', opts.join(''));
+      } catch (err) {
+        /* 忽略 */
+      }
+
+      qs('#exh-q').addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(load, 300);
+      });
+      qs('#exh-decade').addEventListener('change', load);
+      load();
+    })();
+  </script>
+</body>
+</html>

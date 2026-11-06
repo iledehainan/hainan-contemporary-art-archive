@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>关于 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <span class="eyebrow">About · 关于本库</span>
+        <h1>关于本库</h1>
+        <p class="page-desc" id="about-sub">一座地方艺术档案库的工作说明：我们在收集什么、如何编目、以及你可以怎样使用它。</p>
+      </div>
+
+      <div class="about-layout">
+        <div class="about-body">
+          <h2>一、我们在做什么</h2>
+          <p id="about-intro">以海南当代艺术的现场为对象，收集、编目并数字化展览画册、评论、手稿、访谈与影像材料。</p>
+          <p>地方艺术的资料往往散落于个人手中：一本印数很少的图录、一张展览请柬、几页布展手记、一段录音。它们构成理解一段艺术现场的基础，却最容易消失。本库的工作是把这些材料找到、编号、扫描、著录，并放进一个可以被检索的结构里。</p>
+
+          <h2>二、收录范围</h2>
+          <p>时间上以 1988 年海南建省前后为起点，延续至今；地理上以海南岛为主要现场，兼顾与海南艺术家、机构相关的岛外活动。文献类型包括：</p>
+          <p>
+            <strong>展览画册</strong>　展览图录、作品集、展场手册<br />
+            <strong>艺术评论</strong>　报刊评论、学术论文、展览前言<br />
+            <strong>艺术家手稿</strong>　创作笔记、草图、方案、书信<br />
+            <strong>访谈与口述</strong>　访谈录音、整理稿、口述史<br />
+            <strong>影像资料</strong>　展览现场、行为记录、影像作品文档<br />
+            <strong>期刊与剪报</strong>　本地报刊、行业期刊、剪报汇编<br />
+            <strong>档案文件</strong>　请柬、海报、批文、机构文件、索引
+          </p>
+
+          <h2>三、编目规则</h2>
+          <p>每条文献获得唯一档案编号，格式为 <span class="mono">HNCA-D-0001</span>；展览编号为 <span class="mono">HNCA-E-001</span>。著录项包括题名、类目、作者、出版者、出版时间、年代、篇幅、来源、权利说明与标签，并尽可能关联到相应的艺术家与展览。</p>
+          <p>对于无法核实的年份、作者或出版信息，我们标注“待考”而不作推测。同一文献存在多个版本时，以最早可获取版本为准，其余在附注中说明。</p>
+
+          <h2 id="rights">四、引用与版权</h2>
+          <p id="about-access">文献原件多藏于机构与私人手中，本站提供目录与数字化副本。引用请注明档案编号；如需高清复制或有偿使用，请与我们联系。</p>
+          <p>引用格式建议：作者：《题名》，出版者，出版年。海南当代艺术文献，档案编号 HNCA-D-0000。</p>
+          <p>站内数字化副本仅用于研究与教学，版权归原作者或原出版机构所有。若权利人认为某项内容不宜公开，请联系我们，我们将及时下架。</p>
+
+          <h2 id="contribute">五、提供线索</h2>
+          <p>如果你手中有与海南当代艺术相关的图录、请柬、照片、手稿或录音，欢迎与我们联系。我们可上门扫描，原件归还；也可接受数字文件捐赠，并在条目中注明提供者。</p>
+          <p>邮箱：<a id="about-email" href="mailto:archive@example.com" style="color:var(--accent)">archive@example.com</a></p>
+        </div>
+
+        <aside>
+          <div class="info-panel">
+            <h4>本库概况</h4>
+            <div class="info-row"><span>文献条目</span><b id="st-doc">—</b></div>
+            <div class="info-row"><span>艺术家</span><b id="st-artist">—</b></div>
+            <div class="info-row"><span>展览记录</span><b id="st-exh">—</b></div>
+            <div class="info-row"><span>年表事件</span><b id="st-time">—</b></div>
+            <div class="info-row"><span>年代跨度</span><b id="st-years">—</b></div>
+            <div class="info-row"><span>机构地址</span><b id="st-addr">—</b></div>
+          </div>
+          <div style="margin-top:18px;font-size:11.5px;line-height:1.9;color:var(--muted)">
+            本页面内容可在后台「设置」中修改。示例条目以「示例」标记，正式发布前请替换或清空。
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('about');
+      const boot = await App.bootstrap();
+      const s = boot.settings;
+      if (s.intro) App.qs('#about-intro').textContent = s.intro;
+      if (s.access_note) App.qs('#about-access').textContent = s.access_note;
+      if (s.contact_email) {
+        const email = App.qs('#about-email');
+        email.textContent = s.contact_email;
+        email.href = `mailto:${s.contact_email}`;
+      }
+      if (s.address) App.qs('#st-addr').textContent = s.address;
+      if (s.site_subtitle) App.qs('#about-sub').textContent = s.site_subtitle;
+
+      const st = boot.stats || {};
+      App.qs('#st-doc').textContent = st.documents || 0;
+      App.qs('#st-artist').textContent = st.artists || 0;
+      App.qs('#st-exh').textContent = st.exhibitions || 0;
+      App.qs('#st-time').textContent = st.timeline || 0;
+      App.qs('#st-years').textContent = st.years && st.years.from ? `${st.years.from}—${st.years.to}` : '—';
+    })();
+  </script>
+</body>
+</html>

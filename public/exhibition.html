@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>展览 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <nav class="breadcrumb" id="breadcrumb"><a href="/">首页</a> / <a href="/exhibitions">展览</a></nav>
+      <div id="exh-detail"></div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('exhibitions');
+      const { esc, qs, api } = App;
+      const id = (location.pathname.match(/\/exhibition\/(\d+)/) || [])[1];
+      const host = qs('#exh-detail');
+
+      if (!id) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 指 定</div><p>请从展览列表选择一场展览。</p></div>`;
+        return;
+      }
+
+      try {
+        const e = await api(`/api/exhibitions/${id}`);
+        document.title = `${e.title} · 海南当代艺术文献`;
+        qs('#breadcrumb').innerHTML = `<a href="/">首页</a> / <a href="/exhibitions">展览</a> / <span>${esc(e.year || '')}</span>`;
+
+        const facts = [
+          ['时间', e.start_date ? `${App.fmtDate(e.start_date)}${e.end_date ? ' — ' + App.fmtDate(e.end_date) : ''}` : ''],
+          ['场馆', [e.venue, e.city].filter(Boolean).join(' · ')],
+          ['策展', e.curators],
+          ['主办', e.organizer],
+          ['编号', `HNCA-E-${String(e.id).padStart(3, '0')}`]
+        ].filter(([, v]) => v);
+
+        host.innerHTML = `
+          <div class="detail-layout" style="grid-template-columns:286px minmax(0,1fr);padding-top:20px">
+            <aside class="detail-media">
+              <div class="detail-cover">
+                ${e.poster ? `<img src="${esc(e.poster)}" alt="${esc(e.title)}" />` : `<div class="cover-noimg serif" style="height:100%">展</div>`}
+              </div>
+            </aside>
+            <article class="detail-body">
+              <span class="eyebrow">${esc(e.year || '')} · 展览记录</span>${App.demoChip(e)}
+              <h1>${esc(e.title)}</h1>
+              ${e.title_en ? `<p class="detail-en">${esc(e.title_en)}</p>` : ''}
+
+              <dl class="meta-table">
+                ${facts.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}
+              </dl>
+
+              ${e.intro ? `<section class="detail-section"><h3>展览说明</h3><p class="abstract">${esc(e.intro)}</p></section>` : ''}
+
+              ${e.artists && e.artists.length ? `
+                <section class="detail-section">
+                  <h3>关联艺术家</h3>
+                  <div class="relation-list">
+                    ${e.artists.map((a) => `<a class="relation-link" href="/artist/${a.id}">${esc(a.name)}${a.name_en ? `<em>${esc(a.name_en)}</em>` : ''}</a>`).join('')}
+                  </div>
+                </section>` : ''}
+
+              ${e.tags && e.tags.length ? `
+                <section class="detail-section">
+                  <h3>标签</h3>
+                  <div class="tag-row">${e.tags.map((t) => `<a class="tag" href="/archive?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
+                </section>` : ''}
+
+              <section class="detail-section">
+                <h3>相关文献 · ${e.documents.length}</h3>
+                ${e.documents.length ? `
+                  <div class="row-list" style="border-top:0">
+                    ${e.documents.map((d) => `
+                      <a class="doc-row" href="/doc/${d.id}" style="grid-template-columns:104px minmax(0,1fr)">
+                        <span class="row-code">${esc(d.code || '')}</span>
+                        <span>
+                          <h3>${esc(d.title)}</h3>
+                          <span class="row-meta">
+                            <span>${esc(d.category)}</span>
+                            <span>${esc(d.author || '佚名')}</span>
+                            <span>${esc(d.year || '')}</span>
+                          </span>
+                        </span>
+                      </a>`).join('')}
+                  </div>` : `<p class="muted">暂未关联文献。</p>`}
+              </section>
+            </article>
+          </div>`;
+      } catch (err) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 找 到</div><p>${esc(err.message)}</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

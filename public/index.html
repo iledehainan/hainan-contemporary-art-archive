@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>海南当代艺术文献 · 数字文献档案库</title>
+  <meta name="description" content="海南当代艺术文献：收录展览画册、艺术评论、艺术家手稿、访谈口述、影像与剪报，提供可检索的数字档案目录。" />
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-grid">
+          <div>
+            <span class="eyebrow">Hainan Contemporary Art Archive · 数字文献档案库</span>
+            <h1>岛屿上的艺术现场，<br /><em>与保存它的工作。</em></h1>
+            <p class="hero-lead" id="hero-lead">
+              以海南当代艺术的现场为对象，收集、编目并数字化展览画册、评论、手稿、访谈与影像材料。
+            </p>
+          </div>
+          <aside class="hero-stats" id="hero-stats" aria-label="档案统计">
+            <div class="stat-row"><span>文献条目</span><b>—</b></div>
+            <div class="stat-row"><span>艺术家</span><b>—</b></div>
+            <div class="stat-row"><span>展览记录</span><b>—</b></div>
+            <div class="stat-row"><span>年表事件</span><b>—</b></div>
+            <p class="stat-note">编号自 HNCA-D-0001 起，持续增补中。</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <div class="search-band">
+      <div class="wrap">
+        <form class="search-band-inner" id="home-search-form" action="/archive" method="get">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+            <circle cx="8.6" cy="8.6" r="5.4" />
+            <path d="M12.7 12.7 17 17" />
+          </svg>
+          <label class="visually-hidden" for="home-search">检索文献</label>
+          <input id="home-search" type="search" name="q" placeholder="输入艺术家、展览或文献关键词" autocomplete="off" />
+          <span class="hint">按 / 快速检索</span>
+        </form>
+      </div>
+    </div>
+
+    <section class="section" id="featured-section">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>精选入藏</h2>
+          <div class="sec-meta">
+            <span class="sec-idx">01 / COLLECTION</span>
+            <a class="sec-link" href="/archive">浏览全部文献 →</a>
+          </div>
+        </div>
+        <div class="card-grid" id="featured"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="two-col">
+          <div>
+            <div class="sec-head">
+              <h2>展览记录</h2>
+              <div class="sec-meta">
+                <span class="sec-idx">02 / EXHIBITIONS</span>
+                <a class="sec-link" href="/exhibitions">全部展览 →</a>
+              </div>
+            </div>
+            <div id="home-exhibitions"></div>
+          </div>
+          <div>
+            <div class="sec-head">
+              <h2>年表</h2>
+              <div class="sec-meta">
+                <span class="sec-idx">03 / CHRONOLOGY</span>
+                <a class="sec-link" href="/timeline">完整年表 →</a>
+              </div>
+            </div>
+            <ul class="tl-mini" id="home-timeline"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2>最新编目</h2>
+          <div class="sec-meta">
+            <span class="sec-idx">04 / RECENTLY CATALOGUED</span>
+            <a class="sec-link" href="/archive?sort=newest">按编目时间浏览 →</a>
+          </div>
+        </div>
+        <div id="home-latest"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('home');
+      const [boot, data] = await Promise.all([App.bootstrap(), App.api('/api/home').catch(() => null)]);
+      const { esc, coverMarkup, demoChip, fmtDate } = App;
+
+      if (boot.settings && boot.settings.intro) {
+        App.qs('#hero-lead').textContent = boot.settings.intro;
+      }
+
+      const s = (data && data.stats) || boot.stats;
+      App.qs('#hero-stats').innerHTML = `
+        <div class="stat-row"><span>文献条目</span><b>${s.documents}</b></div>
+        <div class="stat-row"><span>艺术家</span><b>${s.artists}</b></div>
+        <div class="stat-row"><span>展览记录</span><b>${s.exhibitions}</b></div>
+        <div class="stat-row"><span>年表事件</span><b>${s.timeline}</b></div>
+        <p class="stat-note">编号自 HNCA-D-0001 起${s.digitized ? `，已数字化 ${s.digitized} 件` : ''}，持续增补中。</p>`;
+
+      if (!data) return;
+
+      if (data.featured.length) {
+        App.qs('#featured').innerHTML = data.featured.map((d) => `
+          <a class="doc-card" href="/doc/${d.id}">
+            <div class="cover">${coverMarkup(d)}</div>
+            <div class="card-body">
+              <span class="code">${esc(d.code || '')}</span>
+              <h3>${esc(d.title)}${demoChip(d)}</h3>
+              <div class="card-meta">
+                <span>${esc(d.author || '佚名')}</span>
+                <span>${esc(d.year || '')}</span>
+              </div>
+              <p class="card-sum">${esc(d.summary || '')}</p>
+            </div>
+          </a>`).join('');
+      } else {
+        App.qs('#featured-section').style.display = 'none';
+        App.qsa('.sec-idx').forEach((el) => {
+          const n = parseInt(el.textContent, 10);
+          if (n > 1) el.textContent = el.textContent.replace(/^\d+/, String(n - 1).padStart(2, '0'));
+        });
+      }
+
+      App.qs('#home-exhibitions').innerHTML = data.exhibitions.length
+        ? data.exhibitions.map((e) => `
+          <a class="exh-item" href="/exhibition/${e.id}">
+            <span class="yr">${esc(e.year || '')}</span>
+            <span>
+              <h4>${esc(e.title)}</h4>
+              <span class="venue">${esc(e.venue || '')}${e.city ? ' · ' + esc(e.city) : ''}</span>
+            </span>
+            <span class="arrow">→</span>
+          </a>`).join('')
+        : `<p class="muted">暂无展览记录。</p>`;
+
+      App.qs('#home-timeline').innerHTML = data.timeline.length
+        ? data.timeline.map((t) => `
+          <li>
+            <span class="yr">${esc(t.year)}</span>
+            <p><a href="/timeline#y${esc(t.year)}" style="text-decoration:none">${esc(t.title)}</a></p>
+          </li>`).join('')
+        : `<li><p class="muted">暂无年表条目。</p></li>`;
+
+      App.qs('#home-latest').innerHTML = `
+        <div class="row-list">
+          ${data.latest.map((d) => `
+            <a class="doc-row" href="/doc/${d.id}">
+              <span class="row-code">${esc(d.code || '')}</span>
+              <span>
+                <h3>${esc(d.title)}${demoChip(d)}</h3>
+                <span class="row-meta">
+                  <span>${esc(d.category)}</span>
+                  <span>${esc(d.author || '佚名')}</span>
+                  <span>${esc(d.year || '')}</span>
+                </span>
+              </span>
+              <span class="mono muted" style="text-align:right;font-size:11px">${esc(fmtDate((d.created_at || '').slice(0, 10)))}</span>
+            </a>`).join('')}
+        </div>`;
+    })();
+  </script>
+</body>
+</html>

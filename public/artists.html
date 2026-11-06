@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>艺术家索引 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <span class="eyebrow">Artists · 人名索引</span>
+        <h1>艺术家</h1>
+        <p class="page-desc">收录长期工作于海南，或作品与海南现场相关的艺术家。条目下汇集其相关文献、展览与手稿，作为进一步研究的入口。</p>
+      </div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:24px 0 18px;border-bottom:1px solid var(--ink)">
+        <input class="admin-search" id="artist-q" type="search" placeholder="检索姓名、简介或关键词" style="max-width:320px" />
+        <select class="filter-select" id="artist-region" style="max-width:180px">
+          <option value="">全部地区</option>
+        </select>
+        <span class="muted mono" id="artist-count" style="margin-left:auto;font-size:11.5px"></span>
+      </div>
+
+      <div id="artist-list" style="padding-bottom:60px"></div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('artists');
+      const { esc, qs, api } = App;
+      let items = [];
+
+      function render() {
+        const q = qs('#artist-q').value.trim().toLowerCase();
+        const region = qs('#artist-region').value;
+        const filtered = items.filter((a) => {
+          const hay = `${a.name} ${a.name_en || ''} ${a.bio || ''} ${(a.tags || []).join(' ')}`.toLowerCase();
+          const okQ = !q || hay.includes(q);
+          const okR = !region || a.region === region;
+          return okQ && okR;
+        });
+        qs('#artist-count').textContent = `${filtered.length} 位`;
+        if (!filtered.length) {
+          qs('#artist-list').innerHTML = `<div class="empty"><div class="empty-mark">无 记 录</div><p>没有符合条件的艺术家。</p></div>`;
+          return;
+        }
+        qs('#artist-list').innerHTML = `<div class="row-list" style="border-top:0">${filtered
+          .map(
+            (a) => `
+          <a class="artist-row" href="/artist/${a.id}">
+            <span>
+              <span class="an">${esc(a.name)}</span>
+              <span class="aen">${esc(a.name_en || '')}</span>
+            </span>
+            <span class="ay">${esc(App.lifespan(a.birth_year, a.death_year))}</span>
+            <span class="am">${esc([a.region || a.birthplace, a.medium].filter(Boolean).join(' · '))}</span>
+            <span class="ac">${a.doc_count} 件文献</span>
+          </a>`
+          )
+          .join('')}</div>`;
+      }
+
+      try {
+        const data = await api('/api/artists');
+        items = data.items || [];
+        const regions = Array.from(new Set(items.map((a) => a.region).filter(Boolean))).sort();
+        qs('#artist-region').innerHTML =
+          `<option value="">全部地区</option>` +
+          regions.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+        render();
+        qs('#artist-q').addEventListener('input', render);
+        qs('#artist-region').addEventListener('change', render);
+      } catch (err) {
+        qs('#artist-list').innerHTML = `<div class="empty"><div class="empty-mark">连 接 失 败</div><p>${esc(err.message)}</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

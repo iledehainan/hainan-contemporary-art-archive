@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <rect width="32" height="32" fill="#f7f4ed"/>
+  <rect x="5" y="5" width="22" height="22" fill="#9c3a26"/>
+  <text x="16" y="22" font-family="'Noto Serif SC',serif" font-size="15" fill="#fbf7ee" text-anchor="middle">文</text>
+</svg>

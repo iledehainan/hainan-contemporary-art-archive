@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文献库 · 海南当代艺术文献</title>
+  <meta name="description" content="按类目、年代、艺术家与关键词检索海南当代艺术文献档案。" />
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <span class="eyebrow">Archive · 编目与检索</span>
+        <h1>文献库</h1>
+        <p class="page-desc">
+          收录展览画册、艺术评论、艺术家手稿、访谈口述、影像资料、期刊剪报与档案文件。每条著录均附档案编号、来源与权利说明。
+        </p>
+      </div>
+
+      <div class="archive-layout">
+        <aside class="filter-col">
+          <div class="filter-group">
+            <h4>关键词</h4>
+            <input class="filter-select" id="f-keyword" type="search" placeholder="标题 / 作者 / 摘要" style="border:1px solid var(--rule);padding:8px 10px" />
+          </div>
+
+          <div class="filter-group">
+            <h4>类目</h4>
+            <div id="f-categories"></div>
+          </div>
+
+          <div class="filter-group">
+            <h4>年代</h4>
+            <select class="filter-select" id="f-decade">
+              <option value="">全部年代</option>
+            </select>
+          </div>
+
+          <div class="filter-group" id="f-artist-group" hidden>
+            <h4>关联艺术家</h4>
+            <select class="filter-select" id="f-artist">
+              <option value="">全部</option>
+            </select>
+          </div>
+
+          <button class="filter-reset" type="button" id="f-reset">清除全部筛选</button>
+        </aside>
+
+        <section>
+          <div class="results-head">
+            <div class="results-count">共 <b id="result-count">—</b> 条文献</div>
+            <div class="results-tools">
+              <div class="view-toggle" role="group" aria-label="显示方式">
+                <button type="button" data-view="list" class="is-on">列表</button>
+                <button type="button" data-view="grid">封面</button>
+              </div>
+              <select class="sort-select" id="f-sort" aria-label="排序">
+                <option value="year_desc">年代 · 由近及远</option>
+                <option value="year_asc">年代 · 由远及近</option>
+                <option value="newest">最新编目</option>
+                <option value="title">标题 · 音序</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="active-filters" id="active-filters"></div>
+          <div id="results"></div>
+          <div class="pager" id="pager"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script src="/assets/js/archive.js"></script>
+</body>
+</html>

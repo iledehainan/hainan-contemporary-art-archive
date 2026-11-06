@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>年表 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <span class="eyebrow">Chronology · 编年</span>
+        <h1>年表</h1>
+        <p class="page-desc">以年份为轴，记录海南当代艺术相关的机构成立、展览、出版、空间与创作事件。凡待考者均在条目中标注。</p>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:22px 0 0">
+        <span class="eyebrow" style="align-self:center;margin-right:8px">筛选</span>
+        <div id="tl-filter" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('timeline');
+      const { esc, qs, api } = App;
+      let items = [];
+      let activeCat = '';
+
+      function render() {
+        const filtered = activeCat ? items.filter((t) => t.category === activeCat) : items;
+        if (!filtered.length) {
+          qs('#timeline').innerHTML = `<div class="empty"><div class="empty-mark">无 记 录</div><p>暂无年表条目。</p></div>`;
+          return;
+        }
+        const groups = new Map();
+        filtered.forEach((t) => {
+          if (!groups.has(t.year)) groups.set(t.year, []);
+          groups.get(t.year).push(t);
+        });
+        qs('#timeline').innerHTML = Array.from(groups.entries())
+          .sort((a, b) => b[0] - a[0])
+          .map(
+            ([year, list]) => `
+            <section class="tl-group" id="y${year}">
+              <div class="tl-year">${year}<small>${list.length} 条</small></div>
+              <div class="tl-items">
+                ${list
+                  .map(
+                    (t) => `
+                  <div class="tl-entry">
+                    <span class="tl-date">${t.month ? String(t.month).padStart(2, '0') + ' 月' : '—'}</span>
+                    <div>
+                      <h4>${esc(t.title)}${t.category ? `<span class="tl-cat">${esc(t.category)}</span>` : ''}</h4>
+                      ${t.description ? `<p>${esc(t.description)}</p>` : ''}
+                    </div>
+                  </div>`
+                  )
+                  .join('')}
+              </div>
+            </section>`
+          )
+          .join('');
+      }
+
+      try {
+        const data = await api('/api/timeline');
+        items = data.items || [];
+        const cats = Array.from(new Set(items.map((t) => t.category).filter(Boolean)));
+        qs('#tl-filter').innerHTML =
+          `<button class="tag" type="button" data-cat="">全部（${items.length}）</button>` +
+          cats
+            .map(
+              (c) =>
+                `<button class="tag" type="button" data-cat="${esc(c)}">${esc(c)}（${items.filter((t) => t.category === c).length}）</button>`
+            )
+            .join('');
+        App.qsa('#tl-filter button').forEach((btn) =>
+          btn.addEventListener('click', () => {
+            activeCat = btn.dataset.cat;
+            App.qsa('#tl-filter button').forEach((b) => {
+              b.style.background = b === btn ? 'var(--ink)' : 'transparent';
+              b.style.color = b === btn ? 'var(--paper)' : 'var(--muted)';
+              b.style.borderColor = b === btn ? 'var(--ink)' : 'var(--rule)';
+            });
+            render();
+          })
+        );
+        qs('#tl-filter button').style.background = 'var(--ink)';
+        qs('#tl-filter button').style.color = 'var(--paper)';
+        qs('#tl-filter button').style.borderColor = 'var(--ink)';
+        render();
+        if (location.hash) {
+          const target = document.querySelector(location.hash);
+          if (target) setTimeout(() => target.scrollIntoView({ block: 'start' }), 120);
+        }
+      } catch (err) {
+        qs('#timeline').innerHTML = `<div class="empty"><div class="empty-mark">连 接 失 败</div><p>${esc(err.message)}</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

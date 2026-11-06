@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>艺术家 · 海南当代艺术文献</title>
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <nav class="breadcrumb" id="breadcrumb"><a href="/">首页</a> / <a href="/artists">艺术家</a></nav>
+      <div id="profile"></div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="/assets/js/app.js"></script>
+  <script>
+    (async () => {
+      App.chrome('artists');
+      const { esc, qs, api, demoChip } = App;
+      const id = (location.pathname.match(/\/artist\/(\d+)/) || [])[1];
+      const host = qs('#profile');
+
+      if (!id) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 指 定</div><p>请从艺术家索引选择一位。</p></div>`;
+        return;
+      }
+
+      try {
+        const a = await api(`/api/artists/${id}`);
+        document.title = `${a.name} · 海南当代艺术文献`;
+        qs('#breadcrumb').innerHTML = `<a href="/">首页</a> / <a href="/artists">艺术家</a> / <span>${esc(a.name)}</span>`;
+
+        const facts = [
+          a.birthplace ? `出生地 ${esc(a.birthplace)}` : '',
+          a.medium ? `媒介 ${esc(a.medium)}` : '',
+          a.tags && a.tags.length ? `关键词 ${a.tags.map((t) => esc(t)).join('、')}` : '',
+          `${a.documents.length} 件相关文献`
+        ].filter(Boolean);
+
+        host.innerHTML = `
+          <div class="artist-profile">
+            <div>
+              <div class="portrait">
+                ${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}" />` : `<span class="portrait-fallback">${esc(a.name.slice(0, 1))}</span>`}
+              </div>
+            </div>
+            <div>
+              <h1 class="profile-name">${esc(a.name)}${demoChip(a)}</h1>
+              ${a.name_en ? `<p class="profile-en">${esc(a.name_en)}</p>` : ''}
+              <div class="profile-facts">
+                ${a.birth_year || a.death_year ? `<span>${esc(App.lifespan(a.birth_year, a.death_year))}</span>` : ''}
+                ${facts.map((f) => `<span>${f}</span>`).join('')}
+              </div>
+              ${a.bio ? `<p class="profile-bio">${esc(a.bio)}</p>` : ''}
+              ${a.statement ? `<section class="detail-section"><h3>艺术家自述</h3><div class="prose">${esc(a.statement)}</div></section>` : ''}
+            </div>
+          </div>
+
+          <section class="detail-section" style="padding-bottom:60px">
+            <h3>相关文献 · ${a.documents.length}</h3>
+            ${a.documents.length ? `
+              <div class="row-list" style="border-top:0">
+                ${a.documents.map((d) => `
+                  <a class="doc-row" href="/doc/${d.id}" style="grid-template-columns:104px minmax(0,1fr)">
+                    <span class="row-code">${esc(d.code || '')}</span>
+                    <span>
+                      <h3>${esc(d.title)}</h3>
+                      <span class="row-meta">
+                        <span>${esc(d.category)}</span>
+                        <span>${esc(d.author || '佚名')}</span>
+                        <span>${esc(d.year || '')}</span>
+                      </span>
+                      ${d.summary ? `<p class="row-sum">${esc(d.summary)}</p>` : ''}
+                    </span>
+                  </a>`).join('')}
+              </div>` : `<p class="muted">暂未关联文献。</p>`}
+          </section>
+
+          ${a.exhibitions.length ? `
+            <section class="detail-section" style="padding-bottom:60px">
+              <h3>相关展览 · ${a.exhibitions.length}</h3>
+              <div class="row-list" style="border-top:0">
+                ${a.exhibitions.map((e) => `
+                  <a class="doc-row" href="/exhibition/${e.id}" style="grid-template-columns:104px minmax(0,1fr)">
+                    <span class="row-code">${esc(e.year || '')}</span>
+                    <span>
+                      <h3>${esc(e.title)}</h3>
+                      <span class="row-meta"><span>${esc(e.venue || '')}</span><span>${esc(App.fmtDate(e.start_date))}</span></span>
+                    </span>
+                  </a>`).join('')}
+              </div>
+            </section>` : ''}`;
+      } catch (err) {
+        host.innerHTML = `<div class="empty"><div class="empty-mark">未 找 到</div><p>${esc(err.message)}</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
