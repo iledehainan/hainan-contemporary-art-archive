@@ -2033,6 +2033,16 @@ input[type="search"]::-webkit-search-decoration {
   font-size: 13px;
 }
 
+#admin-table {
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-table {
+  min-width: 600px;
+}
+
 .admin-table th {
   text-align: left;
   font-weight: 400;
@@ -2482,6 +2492,14 @@ input[type="search"]::-webkit-search-decoration {
   .wrap {
     width: calc(100% - 40px);
   }
+  .wrap > *,
+  .archive-layout > *,
+  .detail-layout > *,
+  .artist-profile > *,
+  .about-layout > *,
+  .two-col > * {
+    min-width: 0;
+  }
   .header-inner {
     height: auto;
     min-height: 66px;
@@ -2580,6 +2598,13 @@ input[type="search"]::-webkit-search-decoration {
     gap: 16px;
     padding: 20px 8px;
   }
+  .doc-row[style*="grid-template-columns"] {
+    grid-template-columns: 76px minmax(0, 1fr) !important;
+  }
+  .doc-row[style*="grid-template-columns"] > :nth-child(3) {
+    grid-column: 2;
+    text-align: left !important;
+  }
   .row-thumb {
     display: none;
   }
@@ -2590,6 +2615,9 @@ input[type="search"]::-webkit-search-decoration {
   .detail-layout {
     grid-template-columns: 1fr;
     gap: 30px;
+  }
+  .detail-layout[style*="grid-template-columns"] {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
   .detail-media {
     position: static;
@@ -2676,6 +2704,7 @@ input[type="search"]::-webkit-search-decoration {
     border-top: 0;
     flex-direction: row;
     margin-left: auto;
+    flex-wrap: wrap;
   }
   .admin-main {
     padding: 20px 20px 60px;
@@ -2701,6 +2730,39 @@ input[type="search"]::-webkit-search-decoration {
 }
 
 @media (max-width: 520px) {
+  .wrap {
+    width: calc(100% - 32px);
+  }
+  .header-inner {
+    column-gap: 10px;
+  }
+  .brand {
+    gap: 8px;
+    min-width: 0;
+  }
+  .brand-text {
+    min-width: 0;
+  }
+  .brand-name {
+    font-size: 15px;
+    letter-spacing: 0.04em;
+  }
+  .brand-en {
+    letter-spacing: 0.08em;
+  }
+  .sec-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .sec-head .sec-meta {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  .results-tools {
+    flex-wrap: wrap;
+  }
   .card-grid {
     grid-template-columns: 1fr;
   }
@@ -2725,11 +2787,97 @@ input[type="search"]::-webkit-search-decoration {
   .hero h1 {
     font-size: 30px;
   }
+  .hero {
+    padding: 36px 0 30px;
+  }
+  .hero-stats {
+    column-gap: 14px;
+  }
+  .hero-stats .stat-row span {
+    letter-spacing: 0.04em;
+  }
+  .page-head {
+    padding: 38px 0 26px;
+  }
   .detail-media {
-    grid-template-columns: 140px minmax(0, 1fr);
+    grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1fr);
+    gap: 14px;
+  }
+  .detail-body,
+  .detail-body > *,
+  .meta-table > *,
+  .related-item > * {
+    min-width: 0;
+  }
+  .related-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    align-items: start;
+  }
+  .related-item .cat {
+    grid-column: 1;
+  }
+  .artist-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 12px;
+  }
+  .artist-row .ay,
+  .artist-row .am {
+    display: block;
+    grid-column: 1;
+    white-space: normal;
+  }
+  .artist-row .ac {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: center;
+  }
+  .tl-group {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .tl-year {
+    font-size: 21px;
+  }
+  .tl-entry {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .footer-grid {
+    gap: 22px 18px;
+  }
+  .admin-main {
+    padding-inline: 16px;
+  }
+  .admin-table {
+    min-width: 560px;
+  }
+  .drawer-foot {
+    align-items: flex-start;
+    padding: 12px 16px;
+  }
+  .drawer-foot > span:last-child {
+    display: flex;
+    gap: 8px;
+  }
+  .drawer-foot .btn {
+    padding-inline: 10px;
+  }
+  .login-wrap {
+    padding: 24px 16px;
   }
   .login-card {
-    padding: 30px 24px;
+    padding: 28px 20px;
+  }
+  .search-field {
+    gap: 10px;
+  }
+  .search-field input {
+    min-width: 0;
+    font-size: 20px;
+  }
+  .search-field .esc {
+    display: none;
   }
   .search-overlay-inner {
     width: calc(100% - 36px);
