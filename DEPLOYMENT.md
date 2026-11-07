@@ -25,6 +25,8 @@ Set these variables in the hosting service before deploying:
 
 The Render blueprint declares the secret variables as dashboard-managed values (`sync: false`). Add the real values in the Render dashboard before deploying. Production startup intentionally fails if `DATABASE_URL` is missing, rather than silently using an ephemeral SQLite file. The free Render web service remains in place; this setup does not require a paid disk or plan.
 
+Render also sets `NODE_EXTRA_CA_CERTS` to the checked-in public Supabase Root 2021 CA certificate. This lets Node.js verify Supabase's PostgreSQL TLS chain without disabling certificate validation. The certificate is public trust material, not a credential.
+
 ## Production data and upload migration: not performed
 
 The schema migration creates empty tables. No data has been imported by this work. The one-time importer below supports only the checksummed public API JSON backup; it does **not** copy a SQLite database, users, sessions, or uploaded files into Supabase. The current service and any local `data/archive.db` must be treated as separate data sources until their contents and authority are confirmed. No local or production database file was uploaded by this work.
