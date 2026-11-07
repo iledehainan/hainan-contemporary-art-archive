@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const GALLERY_QUERY = require('./gallery-query');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
@@ -851,6 +852,10 @@ async function home() {
   return { featured, latest, exhibitions, timeline, stats: await stats() };
 }
 
+async function gallery() {
+  return db.prepare(GALLERY_QUERY).all();
+}
+
 async function clearDemo() {
   await db.prepare('DELETE FROM documents WHERE is_demo = 1').run();
   await db.prepare('DELETE FROM artists WHERE is_demo = 1').run();
@@ -889,6 +894,7 @@ module.exports = {
   searchAll,
   stats,
   home,
+  gallery,
   clearDemo,
   splitTags,
   toInt,

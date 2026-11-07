@@ -6,7 +6,7 @@ This repository now supports Supabase PostgreSQL while keeping SQLite as the loc
 
 1. Create a Supabase project and keep its database password private.
 2. In the Supabase SQL Editor, run `migrations/001_initial_schema.sql` once. The application does not create or reset PostgreSQL tables on startup.
-3. In **Storage**, create a **private** bucket named `archive-uploads` (or choose another name and set `SUPABASE_STORAGE_BUCKET`). Set its file size limit to at least 24 MB. The backend uses the service-role key to upload files and redirects `/uploads/...` requests to short-lived signed URLs.
+3. In **Storage**, create a **private** bucket named `archive-uploads` (or choose another name and set `SUPABASE_STORAGE_BUCKET`). Set its file size limit to at least 24 MB. The backend uses the service-role key to upload files and redirects `/uploads/...` requests to short-lived signed URLs. The management form accepts JPG, PNG, WebP, and GIF images plus PDF files; each file is limited to 24 MiB. The server checks the declared MIME type, filename extension, and file signature before storing it. New SVG uploads are intentionally disabled; shipped decorative SVGs remain static assets, while existing locally stored SVG uploads remain readable under a restrictive content policy.
 4. Copy the project URL, service-role key, and a PostgreSQL connection-pooler URI from the Supabase project settings. Use the service-role key only as a server environment variable; never put it in frontend files or commit it.
 
 ## Configure the app
@@ -21,7 +21,9 @@ Set these variables in the hosting service before deploying:
 | `SUPABASE_STORAGE_BUCKET` | No | `archive-uploads` unless you chose another bucket |
 | `DB_POOL_SIZE` | No | Defaults to `5`; keep low for a small free-tier instance |
 
-`.env.example` contains placeholders only. Locally, omit `DATABASE_URL` to keep using SQLite; do not copy production credentials into the repository.
+`.env.example` contains placeholders only. Locally, omit `DATABASE_URL` to keep using SQLite and local `uploads/`; do not copy production credentials into the repository.
+
+The public **图像索引** (`/gallery`) is built from document covers, artist portraits, and exhibition posters already saved in the archive records. Sign in at `/admin`, edit or create a record, and upload an image in its image field; after saving, the image appears on the public index and links back to its record. The local-development upload directory is `uploads/`; production uploads go to the configured private Supabase bucket. Do not use the ephemeral Render filesystem as the only production copy.
 
 The Render blueprint declares the secret variables as dashboard-managed values (`sync: false`). Add the real values in the Render dashboard before deploying. Production startup intentionally fails if `DATABASE_URL` is missing, rather than silently using an ephemeral SQLite file. The free Render web service remains in place; this setup does not require a paid disk or plan.
 

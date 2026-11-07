@@ -44,6 +44,7 @@ const App = (() => {
 
   const navItems = [
     { href: '/archive', label: '文献库', key: 'archive' },
+    { href: '/gallery', label: '图像', key: 'gallery' },
     { href: '/artists', label: '艺术家', key: 'artists' },
     { href: '/exhibitions', label: '展览', key: 'exhibitions' },
     { href: '/timeline', label: '年表', key: 'timeline' },
