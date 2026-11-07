@@ -2,3 +2,8 @@ node_modules/
 npm-debug.log*
 *.db-shm
 *.db-wal
+.env
+.env.*
+!.env.example
+data/*.db
+uploads/*

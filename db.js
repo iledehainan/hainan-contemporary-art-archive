@@ -3,17 +3,72 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const UPLOAD_DIR = path.join(ROOT, 'uploads');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const USE_POSTGRES = Boolean(process.env.DATABASE_URL);
+let db;
 
-const db = new DatabaseSync(path.join(DATA_DIR, 'archive.db'));
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA foreign_keys = ON;');
+if (USE_POSTGRES) {
+  const { Pool, types } = require('pg');
+  types.setTypeParser(20, Number);
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: Number(process.env.DB_POOL_SIZE || 5),
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000
+  });
+
+  function toPostgresSql(sql) {
+    let ignoreConflict = false;
+    let parameterIndex = 0;
+    let query = sql.replace(/INSERT OR IGNORE INTO/gi, () => {
+      ignoreConflict = true;
+      return 'INSERT INTO';
+    });
+    query = query.replace(
+      /group_concat\(\s*([^,]+),\s*'([^']*)'\s*\)/gi,
+      "string_agg($1, '$2')"
+    );
+    query = query.replace(/\bLIKE\b/gi, 'ILIKE');
+    query = query.replace(/\?/g, () => `$${++parameterIndex}`);
+    if (ignoreConflict) query += ' ON CONFLICT DO NOTHING';
+    return query;
+  }
+
+  db = {
+    prepare(sql) {
+      return {
+        async get(...params) {
+          const result = await pool.query(toPostgresSql(sql), params);
+          return result.rows[0];
+        },
+        async all(...params) {
+          const result = await pool.query(toPostgresSql(sql), params);
+          return result.rows;
+        },
+        async run(...params) {
+          let query = toPostgresSql(sql);
+          const returnsId = /^\s*INSERT\s+INTO\s+(documents|artists|exhibitions|timeline)\b/i.test(query);
+          if (returnsId && !/\bRETURNING\b/i.test(query)) query += ' RETURNING id';
+          const result = await pool.query(query, params);
+          return { changes: result.rowCount, lastInsertRowid: result.rows[0]?.id };
+        }
+      };
+    }
+  };
+} else {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('DATABASE_URL is required in production; SQLite is only for local development.');
+  }
+  const { DatabaseSync } = require('node:sqlite');
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  db = new DatabaseSync(path.join(DATA_DIR, 'archive.db'));
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA foreign_keys = ON;');
+}
 
 const CATEGORIES = [
   '展览画册',
@@ -31,7 +86,7 @@ const now = () => new Date().toISOString();
 /* 建表                                                                */
 /* ------------------------------------------------------------------ */
 
-db.exec(`
+if (!USE_POSTGRES) db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
@@ -177,30 +232,30 @@ const DEFAULT_SETTINGS = {
   address: '海南省海口市'
 };
 
-function getSettings() {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+async function getSettings() {
+  const rows = await db.prepare('SELECT key, value FROM settings').all();
   const out = { ...DEFAULT_SETTINGS };
   for (const r of rows) out[r.key] = r.value;
   return out;
 }
 
-function updateSettings(patch) {
+async function updateSettings(patch) {
   const stmt = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   );
   for (const [key, value] of Object.entries(patch)) {
     if (!(key in DEFAULT_SETTINGS)) continue;
-    stmt.run(key, value == null ? '' : String(value));
+    await stmt.run(key, value == null ? '' : String(value));
   }
   return getSettings();
 }
 
-function ensureAdmin() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+async function ensureAdmin() {
+  const count = (await db.prepare('SELECT COUNT(*) AS n FROM users').get()).n;
   if (count > 0) return null;
   const username = 'admin';
   const password = crypto.randomBytes(4).toString('hex');
-  db.prepare(
+  await db.prepare(
     'INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)'
   ).run(username, hashPassword(password), '档案管理员', 'admin', now());
   return { username, password };
@@ -295,7 +350,7 @@ function documentFilters(query, alias = 'd') {
   return { sql: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }
 
-function listDocuments(query = {}) {
+async function listDocuments(query = {}) {
   const { sql: whereSql, params } = documentFilters(query);
   const { page, pageSize, offset } = paging(query);
   const sortKey = query.sort || 'year_desc';
@@ -307,8 +362,8 @@ function listDocuments(query = {}) {
       newest: 'd.created_at DESC'
     }[sortKey] || 'd.year DESC NULLS LAST, d.id DESC';
 
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM documents d ${whereSql}`).get(...params).n;
-  const items = db
+  const total = (await db.prepare(`SELECT COUNT(*) AS n FROM documents d ${whereSql}`).get(...params)).n;
+  const items = await db
     .prepare(
       `SELECT d.id, d.code, d.title, d.title_en, d.category, d.author, d.publisher,
               d.pub_date, d.year, d.summary, d.cover, d.file_path, d.tags, d.is_demo,
@@ -326,24 +381,24 @@ function normalizeDocRow(row) {
   return { ...row, tags: splitTags(row.tags), artists: row.artist_names || '' };
 }
 
-function getDocument(id) {
-  const row = db.prepare('SELECT * FROM documents WHERE id = ?').get(toInt(id));
+async function getDocument(id) {
+  const row = await db.prepare('SELECT * FROM documents WHERE id = ?').get(toInt(id));
   if (!row) return null;
-  const artists = db
+  const artists = await db
     .prepare(
       `SELECT a.id, a.name, a.name_en, a.birth_year, a.death_year
        FROM doc_artists da JOIN artists a ON a.id = da.artist_id
        WHERE da.document_id = ?`
     )
     .all(row.id);
-  const exhibitions = db
+  const exhibitions = await db
     .prepare(
       `SELECT e.id, e.title, e.year, e.venue
        FROM doc_exhibitions de JOIN exhibitions e ON e.id = de.exhibition_id
        WHERE de.document_id = ? ORDER BY e.year`
     )
     .all(row.id);
-  const related = db
+  const related = await db
     .prepare(
       `SELECT d.id, d.code, d.title, d.category, d.year
        FROM documents d
@@ -368,8 +423,8 @@ function getDocument(id) {
   };
 }
 
-function nextCode() {
-  const last = db.prepare("SELECT code FROM documents WHERE code LIKE 'HNCA-D-%' ORDER BY id DESC LIMIT 1").get();
+async function nextCode() {
+  const last = await db.prepare("SELECT code FROM documents WHERE code LIKE 'HNCA-D-%' ORDER BY id DESC LIMIT 1").get();
   let n = 1;
   if (last && last.code) {
     const parsed = parseInt(String(last.code).replace('HNCA-D-', ''), 10);
@@ -378,10 +433,10 @@ function nextCode() {
   return `HNCA-D-${String(n).padStart(4, '0')}`;
 }
 
-function saveDocument(payload, id = null) {
+async function saveDocument(payload, id = null) {
   const stamp = now();
   const fields = {
-    code: payload.code || nextCode(),
+    code: payload.code || await nextCode(),
     title: payload.title || '未命名文献',
     title_en: payload.title_en || null,
     category: payload.category || CATEGORIES[0],
@@ -404,12 +459,12 @@ function saveDocument(payload, id = null) {
   let docId = toInt(id);
   if (docId) {
     const keys = Object.keys(fields);
-    db.prepare(
+    await db.prepare(
       `UPDATE documents SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`
     ).run(...keys.map((k) => fields[k]), stamp, docId);
   } else {
     const keys = Object.keys(fields);
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO documents (${keys.join(', ')}, created_at, updated_at)
          VALUES (${keys.map(() => '?').join(', ')}, ?, ?)`
@@ -418,31 +473,31 @@ function saveDocument(payload, id = null) {
     docId = Number(info.lastInsertRowid);
   }
 
-  db.prepare('DELETE FROM doc_artists WHERE document_id = ?').run(docId);
-  db.prepare('DELETE FROM doc_exhibitions WHERE document_id = ?').run(docId);
+  await db.prepare('DELETE FROM doc_artists WHERE document_id = ?').run(docId);
+  await db.prepare('DELETE FROM doc_exhibitions WHERE document_id = ?').run(docId);
   const linkArtist = db.prepare('INSERT OR IGNORE INTO doc_artists (document_id, artist_id) VALUES (?, ?)');
   for (const artistId of payload.artists || []) {
-    if (toInt(artistId)) linkArtist.run(docId, toInt(artistId));
+    if (toInt(artistId)) await linkArtist.run(docId, toInt(artistId));
   }
   const linkExh = db.prepare(
     'INSERT OR IGNORE INTO doc_exhibitions (document_id, exhibition_id) VALUES (?, ?)'
   );
   for (const exhId of payload.exhibitions || []) {
-    if (toInt(exhId)) linkExh.run(docId, toInt(exhId));
+    if (toInt(exhId)) await linkExh.run(docId, toInt(exhId));
   }
 
   return getDocument(docId);
 }
 
-function deleteDocument(id) {
-  db.prepare('DELETE FROM documents WHERE id = ?').run(toInt(id));
+async function deleteDocument(id) {
+  await db.prepare('DELETE FROM documents WHERE id = ?').run(toInt(id));
 }
 
 /* ------------------------------------------------------------------ */
 /* 艺术家                                                              */
 /* ------------------------------------------------------------------ */
 
-function listArtists(query = {}) {
+async function listArtists(query = {}) {
   const where = [];
   const params = [];
   if (query.q && String(query.q).trim()) {
@@ -462,7 +517,7 @@ function listArtists(query = {}) {
     }
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT a.*, (SELECT COUNT(*) FROM doc_artists da WHERE da.artist_id = a.id) AS doc_count
        FROM artists a ${whereSql}`
@@ -471,17 +526,17 @@ function listArtists(query = {}) {
   return sortByName(rows).map((r) => ({ ...r, tags: splitTags(r.tags) }));
 }
 
-function getArtist(id) {
-  const row = db.prepare('SELECT * FROM artists WHERE id = ?').get(toInt(id));
+async function getArtist(id) {
+  const row = await db.prepare('SELECT * FROM artists WHERE id = ?').get(toInt(id));
   if (!row) return null;
-  const documents = db
+  const documents = await db
     .prepare(
       `SELECT d.id, d.code, d.title, d.category, d.year, d.author, d.summary
        FROM documents d JOIN doc_artists da ON da.document_id = d.id
        WHERE da.artist_id = ? ORDER BY d.year DESC NULLS LAST, d.id DESC`
     )
     .all(row.id);
-  const exhibitions = db
+  const exhibitions = await db
     .prepare(
       `SELECT DISTINCT e.id, e.title, e.year, e.venue, e.start_date, e.end_date
        FROM exhibitions e
@@ -493,7 +548,7 @@ function getArtist(id) {
   return { ...row, tags: splitTags(row.tags), documents, exhibitions };
 }
 
-function saveArtist(payload, id = null) {
+async function saveArtist(payload, id = null) {
   const stamp = now();
   const fields = {
     name: payload.name || '未命名',
@@ -512,11 +567,11 @@ function saveArtist(payload, id = null) {
   const keys = Object.keys(fields);
   let artistId = toInt(id);
   if (artistId) {
-    db.prepare(
+    await db.prepare(
       `UPDATE artists SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`
     ).run(...keys.map((k) => fields[k]), stamp, artistId);
   } else {
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO artists (${keys.join(', ')}, created_at, updated_at)
          VALUES (${keys.map(() => '?').join(', ')}, ?, ?)`
@@ -527,15 +582,15 @@ function saveArtist(payload, id = null) {
   return getArtist(artistId);
 }
 
-function deleteArtist(id) {
-  db.prepare('DELETE FROM artists WHERE id = ?').run(toInt(id));
+async function deleteArtist(id) {
+  await db.prepare('DELETE FROM artists WHERE id = ?').run(toInt(id));
 }
 
 /* ------------------------------------------------------------------ */
 /* 展览                                                                */
 /* ------------------------------------------------------------------ */
 
-function listExhibitions(query = {}) {
+async function listExhibitions(query = {}) {
   const where = [];
   const params = [];
   if (query.q && String(query.q).trim()) {
@@ -564,10 +619,10 @@ function listExhibitions(query = {}) {
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const { page, pageSize, offset } = paging(query);
-  const total = db
+  const total = (await db
     .prepare(`SELECT COUNT(*) AS n FROM exhibitions ${whereSql}`)
-    .get(...params).n;
-  const items = db
+    .get(...params)).n;
+  const items = await db
     .prepare(
       `SELECT *, (SELECT COUNT(*) FROM doc_exhibitions de WHERE de.exhibition_id = exhibitions.id) AS doc_count
        FROM exhibitions ${whereSql}
@@ -583,17 +638,17 @@ function listExhibitions(query = {}) {
   };
 }
 
-function getExhibition(id) {
-  const row = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(toInt(id));
+async function getExhibition(id) {
+  const row = await db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(toInt(id));
   if (!row) return null;
-  const documents = db
+  const documents = await db
     .prepare(
       `SELECT d.id, d.code, d.title, d.category, d.year, d.author, d.summary
        FROM documents d JOIN doc_exhibitions de ON de.document_id = d.id
        WHERE de.exhibition_id = ? ORDER BY d.year DESC NULLS LAST`
     )
     .all(row.id);
-  const artists = db
+  const artists = await db
     .prepare(
       `SELECT DISTINCT a.id, a.name, a.name_en
        FROM artists a
@@ -605,7 +660,7 @@ function getExhibition(id) {
   return { ...row, tags: splitTags(row.tags), documents, artists: sortByName(artists) };
 }
 
-function saveExhibition(payload, id = null) {
+async function saveExhibition(payload, id = null) {
   const stamp = now();
   const fields = {
     title: payload.title || '未命名展览',
@@ -625,11 +680,11 @@ function saveExhibition(payload, id = null) {
   const keys = Object.keys(fields);
   let exhId = toInt(id);
   if (exhId) {
-    db.prepare(
+    await db.prepare(
       `UPDATE exhibitions SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`
     ).run(...keys.map((k) => fields[k]), stamp, exhId);
   } else {
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO exhibitions (${keys.join(', ')}, created_at, updated_at)
          VALUES (${keys.map(() => '?').join(', ')}, ?, ?)`
@@ -640,15 +695,15 @@ function saveExhibition(payload, id = null) {
   return getExhibition(exhId);
 }
 
-function deleteExhibition(id) {
-  db.prepare('DELETE FROM exhibitions WHERE id = ?').run(toInt(id));
+async function deleteExhibition(id) {
+  await db.prepare('DELETE FROM exhibitions WHERE id = ?').run(toInt(id));
 }
 
 /* ------------------------------------------------------------------ */
 /* 年表                                                                */
 /* ------------------------------------------------------------------ */
 
-function listTimeline(query = {}) {
+async function listTimeline(query = {}) {
   const where = [];
   const params = [];
   const from = toInt(query.year_from);
@@ -672,7 +727,7 @@ function listTimeline(query = {}) {
     .all(...params);
 }
 
-function saveTimeline(payload, id = null) {
+async function saveTimeline(payload, id = null) {
   const stamp = now();
   const fields = {
     year: toInt(payload.year) || new Date().getFullYear(),
@@ -686,11 +741,11 @@ function saveTimeline(payload, id = null) {
   const keys = Object.keys(fields);
   let tid = toInt(id);
   if (tid) {
-    db.prepare(
+    await db.prepare(
       `UPDATE timeline SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`
     ).run(...keys.map((k) => fields[k]), stamp, tid);
   } else {
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO timeline (${keys.join(', ')}, created_at, updated_at)
          VALUES (${keys.map(() => '?').join(', ')}, ?, ?)`
@@ -701,38 +756,38 @@ function saveTimeline(payload, id = null) {
   return db.prepare('SELECT * FROM timeline WHERE id = ?').get(tid);
 }
 
-function deleteTimeline(id) {
-  db.prepare('DELETE FROM timeline WHERE id = ?').run(toInt(id));
+async function deleteTimeline(id) {
+  await db.prepare('DELETE FROM timeline WHERE id = ?').run(toInt(id));
 }
 
 /* ------------------------------------------------------------------ */
 /* 检索与统计                                                          */
 /* ------------------------------------------------------------------ */
 
-function searchAll(q) {
+async function searchAll(q) {
   const kw = like(q);
-  const documents = db
+  const documents = await db
     .prepare(
       `SELECT id, code, title, category, year FROM documents
        WHERE title LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\'
        ORDER BY year DESC NULLS LAST LIMIT 8`
     )
     .all(kw, kw, kw);
-  const artists = db
+  const artists = await db
     .prepare(
       `SELECT id, name, name_en, birth_year, death_year, region FROM artists
        WHERE name LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR bio LIKE ? ESCAPE '\\'
        LIMIT 6`
     )
     .all(kw, kw, kw);
-  const exhibitions = db
+  const exhibitions = await db
     .prepare(
       `SELECT id, title, year, venue FROM exhibitions
        WHERE title LIKE ? ESCAPE '\\' OR venue LIKE ? ESCAPE '\\' OR intro LIKE ? ESCAPE '\\'
        ORDER BY year DESC NULLS LAST LIMIT 6`
     )
     .all(kw, kw, kw);
-  const timeline = db
+  const timeline = await db
     .prepare(
       `SELECT id, year, title FROM timeline
        WHERE title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
@@ -748,63 +803,64 @@ function searchAll(q) {
   };
 }
 
-function stats() {
-  const one = (sql) => db.prepare(sql).get().n;
-  const categoryRows = db
+async function stats() {
+  const one = async (sql) => (await db.prepare(sql).get()).n;
+  const categoryRows = await db
     .prepare('SELECT category, COUNT(*) AS n FROM documents GROUP BY category ORDER BY n DESC')
     .all();
-  const yearRange = db
+  const yearRange = await db
     .prepare('SELECT MIN(year) AS min, MAX(year) AS max FROM documents WHERE year IS NOT NULL')
     .get();
   return {
-    documents: one('SELECT COUNT(*) AS n FROM documents'),
-    artists: one('SELECT COUNT(*) AS n FROM artists'),
-    exhibitions: one('SELECT COUNT(*) AS n FROM exhibitions'),
-    timeline: one('SELECT COUNT(*) AS n FROM timeline'),
-    digitized: one("SELECT COUNT(*) AS n FROM documents WHERE file_path IS NOT NULL AND file_path <> ''"),
+    documents: await one('SELECT COUNT(*) AS n FROM documents'),
+    artists: await one('SELECT COUNT(*) AS n FROM artists'),
+    exhibitions: await one('SELECT COUNT(*) AS n FROM exhibitions'),
+    timeline: await one('SELECT COUNT(*) AS n FROM timeline'),
+    digitized: await one("SELECT COUNT(*) AS n FROM documents WHERE file_path IS NOT NULL AND file_path <> ''"),
     categories: categoryRows,
     years: { from: yearRange.min, to: yearRange.max }
   };
 }
 
-function home() {
-  const featured = db
+async function home() {
+  const featured = await db
     .prepare(
       `SELECT d.id, d.code, d.title, d.category, d.year, d.author, d.cover, d.summary, d.is_demo
        FROM documents d WHERE d.cover IS NOT NULL AND d.cover <> ''
        ORDER BY d.year DESC LIMIT 3`
     )
     .all();
-  const latest = db
+  const latest = await db
     .prepare(
       `SELECT id, code, title, category, year, author, created_at FROM documents
        ORDER BY created_at DESC LIMIT 6`
     )
     .all();
-  const exhibitions = db
+  const exhibitions = await db
     .prepare(
       `SELECT id, title, venue, city, year, start_date, end_date, poster FROM exhibitions
        ORDER BY year DESC NULLS LAST, start_date DESC NULLS LAST LIMIT 4`
     )
     .all();
-  const timeline = db
+  const timeline = await db
     .prepare(
       `SELECT id, year, month, title, category FROM timeline
        ORDER BY year DESC, COALESCE(month, 13) DESC LIMIT 5`
     )
     .all();
-  return { featured, latest, exhibitions, timeline, stats: stats() };
+  return { featured, latest, exhibitions, timeline, stats: await stats() };
 }
 
-function clearDemo() {
-  db.prepare('DELETE FROM documents WHERE is_demo = 1').run();
-  db.prepare('DELETE FROM artists WHERE is_demo = 1').run();
-  db.prepare('DELETE FROM exhibitions WHERE is_demo = 1').run();
-  db.prepare('DELETE FROM timeline WHERE is_demo = 1').run();
+async function clearDemo() {
+  await db.prepare('DELETE FROM documents WHERE is_demo = 1').run();
+  await db.prepare('DELETE FROM artists WHERE is_demo = 1').run();
+  await db.prepare('DELETE FROM exhibitions WHERE is_demo = 1').run();
+  await db.prepare('DELETE FROM timeline WHERE is_demo = 1').run();
 }
 
 module.exports = {
   db,
+  USE_POSTGRES,
   ROOT,
   DATA_DIR,
   UPLOAD_DIR,

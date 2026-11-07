@@ -415,8 +415,8 @@ const timeline = [
   { year: 2024, month: 3, title: '数字文献档案库上线', category: '文献', description: '（示例）站内文献库开放检索，首批发布目录与数字化副本。' }
 ];
 
-function insertDemo() {
-  const existing = db.prepare('SELECT COUNT(*) AS n FROM documents').get().n;
+async function insertDemo() {
+  const existing = (await db.prepare('SELECT COUNT(*) AS n FROM documents').get()).n;
   if (existing > 0) return false;
 
   const stamp = store.now();
@@ -424,8 +424,9 @@ function insertDemo() {
     `INSERT INTO artists (name, name_en, birth_year, death_year, birthplace, region, medium, bio, statement, portrait, tags, is_demo, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
   );
-  const artistIds = artists.map((a) => {
-    const info = insertArtist.run(
+  const artistIds = [];
+  for (const a of artists) {
+    const info = await insertArtist.run(
       a.name,
       a.name_en || null,
       a.birth_year || null,
@@ -440,15 +441,16 @@ function insertDemo() {
       stamp,
       stamp
     );
-    return Number(info.lastInsertRowid);
-  });
+    artistIds.push(Number(info.lastInsertRowid));
+  }
 
   const insertExh = db.prepare(
     `INSERT INTO exhibitions (title, title_en, venue, city, start_date, end_date, year, curators, organizer, intro, poster, tags, is_demo, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
   );
-  const exhIds = exhibitions.map((e) => {
-    const info = insertExh.run(
+  const exhIds = [];
+  for (const e of exhibitions) {
+    const info = await insertExh.run(
       e.title,
       e.title_en || null,
       e.venue || null,
@@ -464,8 +466,8 @@ function insertDemo() {
       stamp,
       stamp
     );
-    return Number(info.lastInsertRowid);
-  });
+    exhIds.push(Number(info.lastInsertRowid));
+  }
 
   const insertDoc = db.prepare(
     `INSERT INTO documents (code, title, title_en, category, author, publisher, pub_date, year, extent, language, summary, content, cover, file_path, source, rights, tags, is_demo, created_at, updated_at)
@@ -476,10 +478,10 @@ function insertDemo() {
     'INSERT OR IGNORE INTO doc_exhibitions (document_id, exhibition_id) VALUES (?, ?)'
   );
 
-  documents.forEach((d, i) => {
+  for (const [i, d] of documents.entries()) {
     const code = `HNCA-D-${String(i + 1).padStart(4, '0')}`;
     const cover = d.cover ? ensureCover(i + 1, d.category, code) : null;
-    const info = insertDoc.run(
+    const info = await insertDoc.run(
       code,
       d.title,
       d.title_en || null,
@@ -501,33 +503,38 @@ function insertDemo() {
       stamp
     );
     const docId = Number(info.lastInsertRowid);
-    (d.artists || []).forEach((idx) => {
-      if (artistIds[idx]) linkArtist.run(docId, artistIds[idx]);
-    });
-    (d.exhibitions || []).forEach((idx) => {
-      if (exhIds[idx]) linkExh.run(docId, exhIds[idx]);
-    });
-  });
+    for (const idx of d.artists || []) {
+      if (artistIds[idx]) await linkArtist.run(docId, artistIds[idx]);
+    }
+    for (const idx of d.exhibitions || []) {
+      if (exhIds[idx]) await linkExh.run(docId, exhIds[idx]);
+    }
+  }
 
   const insertEvent = db.prepare(
     `INSERT INTO timeline (year, month, date_text, title, description, category, is_demo, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
   );
-  timeline.forEach((t) => {
-    insertEvent.run(t.year, t.month || null, null, t.title, t.description || null, t.category || null, stamp, stamp);
-  });
+  for (const t of timeline) {
+    await insertEvent.run(t.year, t.month || null, null, t.title, t.description || null, t.category || null, stamp, stamp);
+  }
 
   return true;
 }
 
 if (require.main === module) {
-  const created = insertDemo();
-  const admin = store.ensureAdmin();
-  console.log(created ? '已写入示例数据。' : '数据库已有文献条目，跳过示例数据写入。');
-  if (admin) {
-    console.log(`已创建管理员账号：${admin.username} / ${admin.password}`);
-    console.log('请登录后台后妥善保存此密码。');
-  }
+  (async () => {
+    const created = await insertDemo();
+    const admin = await store.ensureAdmin();
+    console.log(created ? '已写入示例数据。' : '数据库已有文献条目，跳过示例数据写入。');
+    if (admin) {
+      console.log(`已创建管理员账号：${admin.username} / ${admin.password}`);
+      console.log('请登录后台后妥善保存此密码。');
+    }
+  })().catch((err) => {
+    console.error('Seeding failed:', err);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = { insertDemo };
