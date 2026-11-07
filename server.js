@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
+const { createClient } = require('@supabase/supabase-js');
 
 const store = require('./db');
 const { insertDemo } = require('./seed');
@@ -15,6 +16,13 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const UPLOAD_DIR = store.UPLOAD_DIR;
 const COOKIE = 'hnca_session';
 const SESSION_DAYS = 7;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const storageBucket = process.env.SUPABASE_STORAGE_BUCKET || 'archive-uploads';
+if (Boolean(supabaseUrl) !== Boolean(supabaseKey)) {
+  throw new Error('Set both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable Supabase Storage.');
+}
+const supabase = supabaseUrl ? createClient(supabaseUrl, supabaseKey) : null;
 const MAX_BODY = 32 * 1024 * 1024; // 32MB，约等于 24MB 原文件
 
 const MIME = {
@@ -33,9 +41,6 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8'
 };
-
-insertDemo();
-const initialAdmin = store.ensureAdmin();
 
 /* ------------------------------------------------------------------ */
 /* 基础工具                                                            */
@@ -90,10 +95,10 @@ function parseCookies(req) {
   return out;
 }
 
-function currentUser(req) {
+async function currentUser(req) {
   const token = parseCookies(req)[COOKIE];
   if (!token) return null;
-  const row = store.db
+  const row = await store.db
     .prepare(
       `SELECT u.id, u.username, u.display_name, u.role, s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`
@@ -101,7 +106,7 @@ function currentUser(req) {
     .get(token);
   if (!row) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    store.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    await store.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return null;
   }
   return row;
@@ -159,7 +164,7 @@ async function handleApi(req, res, url) {
   const { pathname } = url;
   const query = Object.fromEntries(url.searchParams.entries());
   const method = req.method.toUpperCase();
-  const user = currentUser(req);
+  const user = await currentUser(req);
 
   if (pathname === '/api/health') return sendJson(res, 200, { ok: true, time: new Date().toISOString() });
 
@@ -167,7 +172,7 @@ async function handleApi(req, res, url) {
     const ip = req.socket.remoteAddress || 'local';
     if (tooManyAttempts(ip)) return sendError(res, 429, '尝试次数过多，请稍后再试');
     const body = await readJson(req);
-    const row = store.db
+    const row = await store.db
       .prepare('SELECT id, username, password_hash, display_name, role FROM users WHERE username = ?')
       .get(String(body.username || '').trim());
     if (!row || !store.verifyPassword(body.password || '', row.password_hash)) {
@@ -177,7 +182,7 @@ async function handleApi(req, res, url) {
     attempts.delete(ip);
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
-    store.db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, row.id, expires);
+    await store.db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, row.id, expires);
     res.setHeader(
       'Set-Cookie',
       `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`
@@ -189,7 +194,7 @@ async function handleApi(req, res, url) {
 
   if (pathname === '/api/auth/logout' && method === 'POST') {
     const token = parseCookies(req)[COOKIE];
-    if (token) store.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    if (token) await store.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
     return sendJson(res, 200, { ok: true });
   }
@@ -204,47 +209,47 @@ async function handleApi(req, res, url) {
   /* -------- 公共读取 -------- */
   if (pathname === '/api/bootstrap') {
     return sendJson(res, 200, {
-      settings: store.getSettings(),
+      settings: await store.getSettings(),
       categories: store.CATEGORIES,
-      stats: store.stats(),
+      stats: await store.stats(),
       user: user ? { username: user.username, display_name: user.display_name } : null
     });
   }
 
-  if (pathname === '/api/home') return sendJson(res, 200, store.home());
+  if (pathname === '/api/home') return sendJson(res, 200, await store.home());
 
   if (pathname === '/api/documents') {
-    return sendJson(res, 200, store.listDocuments(query));
+    return sendJson(res, 200, await store.listDocuments(query));
   }
 
   if (pathname.startsWith('/api/documents/')) {
-    const doc = store.getDocument(pathname.split('/')[3]);
+    const doc = await store.getDocument(pathname.split('/')[3]);
     if (!doc) return sendError(res, 404, '未找到该文献');
     return sendJson(res, 200, doc);
   }
 
-  if (pathname === '/api/artists') return sendJson(res, 200, { items: store.listArtists(query) });
+  if (pathname === '/api/artists') return sendJson(res, 200, { items: await store.listArtists(query) });
 
   if (pathname.startsWith('/api/artists/')) {
-    const artist = store.getArtist(pathname.split('/')[3]);
+    const artist = await store.getArtist(pathname.split('/')[3]);
     if (!artist) return sendError(res, 404, '未找到该艺术家');
     return sendJson(res, 200, artist);
   }
 
-  if (pathname === '/api/exhibitions') return sendJson(res, 200, store.listExhibitions(query));
+  if (pathname === '/api/exhibitions') return sendJson(res, 200, await store.listExhibitions(query));
 
   if (pathname.startsWith('/api/exhibitions/')) {
-    const exh = store.getExhibition(pathname.split('/')[3]);
+    const exh = await store.getExhibition(pathname.split('/')[3]);
     if (!exh) return sendError(res, 404, '未找到该展览');
     return sendJson(res, 200, exh);
   }
 
-  if (pathname === '/api/timeline') return sendJson(res, 200, { items: store.listTimeline(query) });
+  if (pathname === '/api/timeline') return sendJson(res, 200, { items: await store.listTimeline(query) });
 
   if (pathname === '/api/search') {
     const q = String(query.q || '').trim();
     if (!q) return sendJson(res, 200, { documents: [], artists: [], exhibitions: [], timeline: [], total: 0 });
-    return sendJson(res, 200, store.searchAll(q));
+    return sendJson(res, 200, await store.searchAll(q));
   }
 
   /* -------- 需要登录 -------- */
@@ -268,7 +273,17 @@ async function handleApi(req, res, url) {
     if (!allowed.includes(ext)) return sendError(res, 400, '仅支持 jpg / png / webp / gif / svg / pdf');
 
     const name = `${Date.now()}-${crypto.randomBytes(5).toString('hex')}${ext}`;
-    fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);
+    if (supabase) {
+      const { error } = await supabase.storage.from(storageBucket).upload(name, buffer, {
+        contentType: MIME[ext] || 'application/octet-stream',
+        upsert: false
+      });
+      if (error) throw new Error(`Supabase Storage upload failed: ${error.message}`);
+    } else if (store.USE_POSTGRES) {
+      return sendError(res, 503, 'File storage is not configured; set Supabase Storage credentials.');
+    } else {
+      fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);
+    }
     return sendJson(res, 200, { url: `/uploads/${name}`, size: buffer.length });
   }
 
@@ -276,9 +291,9 @@ async function handleApi(req, res, url) {
     if (!user) return sendError(res, 401, '请先登录');
 
     if (pathname === '/api/admin/overview') {
-      const stats = store.stats();
-      const demo = store.db.prepare('SELECT COUNT(*) AS n FROM documents WHERE is_demo = 1').get().n;
-      const recent = store.db
+      const stats = await store.stats();
+      const demo = (await store.db.prepare('SELECT COUNT(*) AS n FROM documents WHERE is_demo = 1').get()).n;
+      const recent = await store.db
         .prepare('SELECT id, code, title, category, updated_at FROM documents ORDER BY updated_at DESC LIMIT 8')
         .all();
       return sendJson(res, 200, { stats, demo, recent });
@@ -286,25 +301,25 @@ async function handleApi(req, res, url) {
 
     if (pathname === '/api/admin/settings' && method === 'PUT') {
       const body = await readJson(req);
-      return sendJson(res, 200, { settings: store.updateSettings(body) });
+      return sendJson(res, 200, { settings: await store.updateSettings(body) });
     }
 
     if (pathname === '/api/admin/password' && method === 'POST') {
       const body = await readJson(req);
-      const row = store.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+      const row = await store.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
       if (!store.verifyPassword(body.current || '', row.password_hash)) {
         return sendError(res, 400, '当前密码不正确');
       }
       if (String(body.next || '').length < 6) return sendError(res, 400, '新密码至少 6 位');
-      store.db
+      await store.db
         .prepare('UPDATE users SET password_hash = ? WHERE id = ?')
         .run(store.hashPassword(body.next), user.id);
-      store.db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(user.id, parseCookies(req)[COOKIE]);
+      await store.db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(user.id, parseCookies(req)[COOKIE]);
       return sendJson(res, 200, { ok: true });
     }
 
     if (pathname === '/api/admin/demo' && method === 'DELETE') {
-      store.clearDemo();
+      await store.clearDemo();
       return sendJson(res, 200, { ok: true });
     }
 
@@ -322,14 +337,14 @@ async function handleApi(req, res, url) {
       const [save, remove] = map[resource];
       if (method === 'POST') {
         const body = await readJson(req);
-        return sendJson(res, 201, save(body, null));
+        return sendJson(res, 201, await save(body, null));
       }
       if (method === 'PUT' && id) {
         const body = await readJson(req);
-        return sendJson(res, 200, save(body, id));
+        return sendJson(res, 200, await save(body, id));
       }
       if (method === 'DELETE' && id) {
-        remove(id);
+        await remove(id);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -360,11 +375,27 @@ const ALIASES = {
   '/search': 'archive.html'
 };
 
-function handlePage(req, res, url) {
+async function handlePage(req, res, url) {
   const { pathname } = url;
 
   if (pathname.startsWith('/uploads/')) {
-    const target = safeJoin(UPLOAD_DIR, pathname.replace('/uploads/', ''));
+    const name = pathname.replace('/uploads/', '');
+    if (supabase) {
+      const { data, error } = await supabase.storage.from(storageBucket).createSignedUrl(name, 60);
+      if (error) {
+        console.error('Supabase Storage signed URL failed:', error.message);
+        const status = Number(error.statusCode) === 404 ? 404 : 503;
+        return sendError(res, status, 'Unable to retrieve this file from Supabase Storage.');
+      }
+      res.writeHead(302, {
+        Location: data.signedUrl,
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      return res.end();
+    }
+    if (store.USE_POSTGRES) return sendError(res, 503, 'File storage is not configured.');
+    const target = safeJoin(UPLOAD_DIR, name);
     if (!target) return sendError(res, 403, '禁止访问');
     return serveFile(res, target, { download: true });
   }
@@ -393,7 +424,7 @@ const server = http.createServer(async (req, res) => {
       await handleApi(req, res, url);
       return;
     }
-    handlePage(req, res, url);
+    await handlePage(req, res, url);
   } catch (err) {
     const status = err && err.status ? err.status : 500;
     if (status === 500) console.error(err);
@@ -402,7 +433,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
+async function start() {
+  if (!store.USE_POSTGRES) await insertDemo();
+  const initialAdmin = await store.ensureAdmin();
+  server.listen(PORT, HOST, () => {
   console.log('');
   console.log('  海南当代艺术文献 · 数字文献档案库');
   console.log(`  本地访问：http://localhost:${PORT}`);
@@ -415,6 +449,12 @@ server.listen(PORT, HOST, () => {
     console.log('    请登录后立即在「设置」中修改密码。');
     console.log('');
   }
+  });
+}
+
+start().catch((err) => {
+  console.error('Application startup failed:', err);
+  process.exitCode = 1;
 });
 
 module.exports = { server };
