@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>图像索引 · 海南当代艺术文献</title>
+  <meta name="description" content="浏览海南当代艺术文献的数字化封面、艺术家肖像与展览图像。" />
+  <link rel="stylesheet" href="/assets/css/main.css" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head gallery-head">
+        <span class="eyebrow">Image Index · 图像档案</span>
+        <h1>图像索引</h1>
+        <p class="page-desc">从文献封面、艺术家肖像到展览海报，以图像为线索进入海南当代艺术的档案现场。每一幅图像都关联着一条可继续查阅的记录。</p>
+      </div>
+
+      <div class="gallery-toolbar" aria-label="筛选图像类型">
+        <div class="gallery-filters">
+          <button type="button" class="is-active" data-filter="all" aria-pressed="true">全部</button>
+          <button type="button" data-filter="document" aria-pressed="false">文献</button>
+          <button type="button" data-filter="artist" aria-pressed="false">艺术家</button>
+          <button type="button" data-filter="exhibition" aria-pressed="false">展览</button>
+        </div>
+        <span class="gallery-count mono" id="gallery-count" aria-live="polite"></span>
+      </div>
+
+      <div class="image-masonry" id="image-gallery" aria-live="polite">
+        <div class="gallery-loading"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+  <script src="/assets/js/app.js"></script>
+  <script src="/assets/js/gallery.js"></script>
+</body>
+</html>

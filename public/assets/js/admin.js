@@ -518,8 +518,8 @@
 
       <div class="form-section" style="margin-top:38px">数据与备份</div>
       <div class="admin-note">
-        数据库文件：<span class="mono">data/archive.db</span>；上传的封面与 PDF：<span class="mono">uploads/</span>。
-        定期复制这两处即可完成备份；迁移服务器时一并复制即可。
+        本地开发使用 <span class="mono">data/archive.db</span> 与 <span class="mono">uploads/</span>；
+        部署环境使用 Supabase PostgreSQL 与私有 Storage Bucket。部署、备份与迁移说明见仓库中的 <span class="mono">DEPLOYMENT.md</span>。
       </div>
       <div class="admin-note" style="border-left-color:#8a7a5c">
         示例数据用于演示排版与字段，正式发布前建议清空并录入真实档案。
@@ -588,7 +588,7 @@
         })
         .join('')}</select>`;
     } else if (field.type === 'image' || field.type === 'file') {
-      const accept = field.type === 'image' ? 'image/*' : 'application/pdf';
+      const accept = field.type === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'application/pdf';
       const preview = v
         ? field.type === 'image'
           ? `<div class="upload-preview"><img src="${esc(v)}" alt="预览" /></div>`
@@ -598,8 +598,9 @@
         <div class="upload-row">
           <input type="hidden" name="${field.key}" value="${esc(v)}" data-upload-value />
           <input type="file" accept="${accept}" data-upload-input />
-          ${v ? `<button class="btn ghost small" type="button" data-upload-clear>移除</button>` : ''}
+          <button class="btn ghost small" type="button" data-upload-clear ${v ? '' : 'hidden'}>移除</button>
         </div>
+        <p class="upload-help">支持 ${field.type === 'image' ? 'JPG、PNG、WebP、GIF' : 'PDF'}，单个文件不超过 24 MB。</p>
         <div data-upload-preview>${preview}</div>`;
     } else {
       input = `<input type="${field.type || 'text'}" name="${field.key}" value="${esc(v)}" ${
@@ -700,19 +701,35 @@
         const file = input.files && input.files[0];
         if (!file) return;
         if (file.size > 24 * 1024 * 1024) {
-          toast('单个文件请小于 24MB');
+          toast('单个文件不能超过 24 MiB');
           input.value = '';
           return;
         }
         const holder = input.closest('.field');
         const hidden = holder.querySelector('[data-upload-value]');
+        const clearButton = holder.querySelector('[data-upload-clear]');
         const previewHost = holder.querySelector('[data-upload-preview]');
+        const previousValue = hidden.value;
+        const isImage = input.accept.startsWith('image/');
+        if (isImage && !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+          toast('请选择 JPG、PNG、WebP 或 GIF 图片');
+          input.value = '';
+          return;
+        }
+        if (!isImage && file.type !== 'application/pdf') {
+          toast('请选择 PDF 文件');
+          input.value = '';
+          return;
+        }
+        holder.dataset.uploading = 'true';
+        input.disabled = true;
+        clearButton.disabled = true;
         previewHost.innerHTML = `<p class="help">上传中…</p>`;
         try {
           const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
+            reader.onerror = () => reject(new Error('读取文件失败'));
             reader.readAsDataURL(file);
           });
           const res = await api('/api/upload', {
@@ -723,10 +740,20 @@
           previewHost.innerHTML = /\.pdf$/i.test(res.url)
             ? `<div class="upload-preview is-file">${esc(res.url)}</div>`
             : `<div class="upload-preview"><img src="${esc(res.url)}" alt="预览" /></div>`;
+          clearButton.hidden = false;
           toast('文件已上传');
         } catch (err) {
-          previewHost.innerHTML = '';
+          input.value = '';
+          previewHost.innerHTML = previousValue
+            ? isImage
+              ? `<div class="upload-preview"><img src="${esc(previousValue)}" alt="预览" /></div>`
+              : `<div class="upload-preview is-file">${esc(previousValue)}</div>`
+            : `<p class="upload-error">${esc(err.message)}</p>`;
           toast(err.message);
+        } finally {
+          delete holder.dataset.uploading;
+          input.disabled = false;
+          clearButton.disabled = false;
         }
       });
     });
@@ -736,7 +763,8 @@
         const holder = btn.closest('.field');
         holder.querySelector('[data-upload-value]').value = '';
         holder.querySelector('[data-upload-preview]').innerHTML = '';
-        btn.remove();
+        holder.querySelector('[data-upload-input]').value = '';
+        btn.hidden = true;
       });
     });
   }
@@ -747,6 +775,10 @@
     const schema = SCHEMAS[key];
     const form = qs('#drawer-form');
     if (!form) return;
+    if (form.querySelector('[data-uploading="true"]')) {
+      toast('请等待文件上传完成后再保存');
+      return;
+    }
 
     const payload = {};
     schema.fields.forEach((field) => {

@@ -9,6 +9,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const store = require('./db');
 const { insertDemo } = require('./seed');
+const { MAX_BODY_SIZE, parseUpload } = require('./upload');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -23,7 +24,7 @@ if (Boolean(supabaseUrl) !== Boolean(supabaseKey)) {
   throw new Error('Set both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable Supabase Storage.');
 }
 const supabase = supabaseUrl ? createClient(supabaseUrl, supabaseKey) : null;
-const MAX_BODY = 32 * 1024 * 1024; // 32MB，约等于 24MB 原文件
+const MAX_BODY = MAX_BODY_SIZE;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -118,7 +119,7 @@ function safeJoin(root, target) {
   return resolved;
 }
 
-function serveFile(res, filePath, { download = false } = {}) {
+function serveFile(res, filePath, { download = false, sandboxSvg = false } = {}) {
   fs.stat(filePath, (err, stat) => {
     if (err || !stat.isFile()) return sendError(res, 404, '文件不存在');
     const ext = path.extname(filePath).toLowerCase();
@@ -130,6 +131,9 @@ function serveFile(res, filePath, { download = false } = {}) {
     };
     if (download || ext === '.pdf') {
       headers['Content-Disposition'] = `inline; filename="${encodeURIComponent(path.basename(filePath))}"`;
+    }
+    if (sandboxSvg && ext === '.svg') {
+      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
     }
     res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
@@ -246,6 +250,8 @@ async function handleApi(req, res, url) {
 
   if (pathname === '/api/timeline') return sendJson(res, 200, { items: await store.listTimeline(query) });
 
+  if (pathname === '/api/gallery') return sendJson(res, 200, { items: await store.gallery() });
+
   if (pathname === '/api/search') {
     const q = String(query.q || '').trim();
     if (!q) return sendJson(res, 200, { documents: [], artists: [], exhibitions: [], timeline: [], total: 0 });
@@ -256,21 +262,7 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/upload' && method === 'POST') {
     if (!user) return sendError(res, 401, '请先登录');
     const body = await readJson(req);
-    const raw = String(body.data || '');
-    const match = raw.match(/^data:([^;]+);base64,(.*)$/);
-    const base64 = match ? match[2] : raw;
-    let buffer;
-    try {
-      buffer = Buffer.from(base64, 'base64');
-    } catch (err) {
-      return sendError(res, 400, '文件解析失败');
-    }
-    if (!buffer.length) return sendError(res, 400, '文件为空');
-    if (buffer.length > 24 * 1024 * 1024) return sendError(res, 413, '单个文件请小于 24MB');
-
-    const ext = path.extname(String(body.filename || '')).toLowerCase();
-    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.pdf'];
-    if (!allowed.includes(ext)) return sendError(res, 400, '仅支持 jpg / png / webp / gif / svg / pdf');
+    const { buffer, ext } = parseUpload(body);
 
     const name = `${Date.now()}-${crypto.randomBytes(5).toString('hex')}${ext}`;
     if (supabase) {
@@ -367,6 +359,7 @@ const PRETTY_ROUTES = [
 
 const ALIASES = {
   '/archive': 'archive.html',
+  '/gallery': 'gallery.html',
   '/artists': 'artists.html',
   '/exhibitions': 'exhibitions.html',
   '/timeline': 'timeline.html',
@@ -380,6 +373,9 @@ async function handlePage(req, res, url) {
 
   if (pathname.startsWith('/uploads/')) {
     const name = pathname.replace('/uploads/', '');
+    if (!/^\d+-[a-f0-9]{10}\.(?:jpg|jpeg|png|webp|gif|pdf|svg)$/i.test(name)) {
+      return sendError(res, 404, '文件不存在');
+    }
     if (supabase) {
       const { data, error } = await supabase.storage.from(storageBucket).createSignedUrl(name, 60);
       if (error) {
@@ -397,7 +393,7 @@ async function handlePage(req, res, url) {
     if (store.USE_POSTGRES) return sendError(res, 503, 'File storage is not configured.');
     const target = safeJoin(UPLOAD_DIR, name);
     if (!target) return sendError(res, 403, '禁止访问');
-    return serveFile(res, target, { download: true });
+    return serveFile(res, target, { download: true, sandboxSvg: true });
   }
 
   for (const route of PRETTY_ROUTES) {
