@@ -1,13 +1,19 @@
-# Supabase and Render deployment preparation
+# GitHub Pages and Supabase deployment
 
-This repository now supports Supabase PostgreSQL while keeping SQLite as the local-development default. No production service was contacted, no production data was copied, and no deployment was performed as part of this change.
+The current public hosting target is GitHub Pages. It publishes only a static, read-only view of the public export. The Node application and Supabase-backed editing/storage require a separate server host; the former Render service has been deleted.
+
+## GitHub Pages public archive
+
+The public, read-only archive is built from `data/content-export.json` and can be hosted at `https://iledehainan.github.io/hainan-contemporary-art-archive/`. The `Deploy GitHub Pages` workflow builds a standalone static site and deploys it on pushes to `main` that change the public export or its builder. To enable the first deployment, open the repository's **Settings → Pages** and set the build and deployment source to **GitHub Actions**. The workflow can also be started manually from the repository's **Actions** tab.
+
+Run `npm run pages:build` locally to generate the site in `dist/`. The static version provides browsing and search for documents, artists, exhibitions, and the timeline. It does not run the Node server and does not provide sign-in, editing, uploads, or other write operations. It only includes the public content export and never reads environment variables or Supabase credentials. GitHub Pages provides the `github.io` hostname; a custom domain would require separately owning and configuring that domain.
 
 ## Supabase setup
 
 1. Create a Supabase project and keep its database password private.
 2. In the Supabase SQL Editor, run `migrations/001_initial_schema.sql` once. The application does not create or reset PostgreSQL tables on startup.
 3. In **Storage**, create a **private** bucket named `archive-uploads` (or choose another name and set `SUPABASE_STORAGE_BUCKET`). Set its file size limit to at least 24 MB. The backend uses the service-role key to upload files and redirects `/uploads/...` requests to short-lived signed URLs. The management form accepts JPG, PNG, WebP, and GIF images plus PDF files; each file is limited to 24 MiB. The server checks the declared MIME type, filename extension, and file signature before storing it. New SVG uploads are intentionally disabled; shipped decorative SVGs remain static assets, while existing locally stored SVG uploads remain readable under a restrictive content policy.
-4. Copy the project URL, service-role key, and a PostgreSQL connection-pooler URI from the Supabase project settings. Use the service-role key only as a server environment variable; never put it in frontend files or commit it.
+4. If you separately host the Node app, copy the project URL, service-role key, and a PostgreSQL connection-pooler URI from the Supabase project settings. Use the service-role key only as a server environment variable; never put it in frontend files or commit it. The GitHub Pages build does not use Supabase credentials.
 
 ## Configure the app
 
@@ -23,11 +29,11 @@ Set these variables in the hosting service before deploying:
 
 `.env.example` contains placeholders only. Locally, omit `DATABASE_URL` to keep using SQLite and local `uploads/`; do not copy production credentials into the repository.
 
-The public **图像索引** (`/gallery`) is built from document covers, artist portraits, and exhibition posters already saved in the archive records. Sign in at `/admin`, edit or create a record, and upload an image in its image field; after saving, the image appears on the public index and links back to its record. The local-development upload directory is `uploads/`; production uploads go to the configured private Supabase bucket. Do not use the ephemeral Render filesystem as the only production copy.
+The Node app's public **图像索引** (`/gallery`) uses document covers, artist portraits, and exhibition posters. The static GitHub Pages version does not include that API-powered gallery or an admin login. For a separately hosted Node app, local-development uploads use `uploads/`; durable production uploads require the configured private Supabase bucket.
 
-The Render blueprint declares the secret variables as dashboard-managed values (`sync: false`). Add the real values in the Render dashboard before deploying. Production startup intentionally fails if `DATABASE_URL` is missing, rather than silently using an ephemeral SQLite file. The free Render web service remains in place; this setup does not require a paid disk or plan.
+The old Render blueprint declared secret variables as dashboard-managed values (`sync: false`), but that Render service and Blueprint have been deleted. Production startup intentionally fails if `DATABASE_URL` is missing, rather than silently using an ephemeral SQLite file.
 
-Render also sets `NODE_EXTRA_CA_CERTS` to the checked-in public Supabase Root 2021 CA certificate. This lets Node.js verify Supabase's PostgreSQL TLS chain without disabling certificate validation. The certificate is public trust material, not a credential.
+The previous Render setup used `NODE_EXTRA_CA_CERTS` with the checked-in public Supabase Root 2021 CA certificate. This public certificate remains in the repository; the GitHub Pages site does not use it.
 
 ## Production data and upload migration: not performed
 
@@ -85,11 +91,11 @@ npm run import:backup -- --backup-zip 'C:\path\to\海南当代艺术文献网站
 
 The default is a dry run and opens no database connection. For the actual import, supply `DATABASE_URL` to the process via a trusted local secret manager or an already-secure terminal environment, then repeat with the explicit `--apply` flag. Do not put credentials in the command line, repository, backup, or chat. The apply command is irreversible once committed; verify that this is the intended empty Supabase project first. The importer refuses a non-empty schema and does not offer a force, truncate, or overwrite option.
 
-Before switching production traffic:
+Before migrating a separately hosted production application:
 
-1. Arrange a maintenance window and take a verified, restorable backup of the authoritative production SQLite database and its upload files. Do not rely on a Render redeploy or local checkout as a backup; the current free service has no persistent disk configured, so local files may be lost when its instance is replaced.
+1. Arrange a maintenance window and take a verified, restorable backup of the authoritative database and its upload files. Do not rely on a deployment host's ephemeral filesystem or a local checkout as a backup.
 2. Keep the original backup unchanged and confirm that it can be read/restored before importing anything. Resolve which source contains the latest edits, settings, accounts, and assets; otherwise records or uploaded documents may be lost.
 3. Use the one-time importer only for the public JSON export or checksummed backup format described above. Production SQLite data, user accounts, settings absent from the public export, and uploaded files need separate, reviewed migration steps. Preserve filenames/object keys for records that refer to `/uploads/<name>`, or update those record URLs during import. Verify record counts, relationships, login, and representative file URLs before directing traffic to the new database.
-4. Keep the old service and backup available until the new deployment and rollback path have been verified. New edits made after the backup will not appear in the old copy unless they are migrated too.
+4. Keep the source backup available until the new deployment and rollback path have been verified. New edits made after the backup will not appear in the migration unless they are migrated too.
 
 Local SQLite startup retains its existing behavior and inserts demo records when the database is empty. PostgreSQL startup does not seed demo archive records; it only creates an initial administrator if the users table is empty. The explicit `npm run seed` command can write demo records to either backend, so do not run it or use the admin cleanup operation against production without confirming its effect.

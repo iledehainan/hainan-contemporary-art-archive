@@ -8,6 +8,7 @@
     "start": "node server.js",
     "seed": "node seed.js",
     "import:backup": "node scripts/import-public-backup.js",
+    "pages:build": "node scripts/build-github-pages.js",
     "test": "node --test"
   },
   "dependencies": {
