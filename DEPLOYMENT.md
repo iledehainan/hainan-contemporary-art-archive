@@ -31,13 +31,13 @@ Render also sets `NODE_EXTRA_CA_CERTS` to the checked-in public Supabase Root 20
 
 ## Production data and upload migration: not performed
 
-The schema migration creates empty tables. No data has been imported by this work. The one-time importer below supports only the checksummed public API JSON backup; it does **not** copy a SQLite database, users, sessions, or uploaded files into Supabase. The current service and any local `data/archive.db` must be treated as separate data sources until their contents and authority are confirmed. No local or production database file was uploaded by this work.
+The schema migration creates empty tables. No data has been imported by this work. The one-time importer below supports either the existing checksummed public API JSON backup directory or a ZIP containing `data/content-export.json`; it does **not** import a SQLite database, users, sessions, or uploaded files into Supabase. For ZIP input it reads only `data/content-export.json`; entries such as `data/archive.db` and `uploads/` are not extracted or imported. The current service and any local `data/archive.db` must be treated as separate data sources until their contents and authority are confirmed. No local or production database file was uploaded by this work.
 
 The repository already tracks `data/archive.db` in its existing history. The new `.gitignore` rule prevents adding future SQLite files but does not untrack this existing file. The file remains unchanged in the branch; decide separately how to preserve or remove it from version control.
 
 ## One-time import of a verified public API backup
 
-`scripts/import-public-backup.js` imports the JSON backup files (`artists.json`, `documents.json`, `exhibitions.json`, `timeline.json`, `settings.json`, and `metadata.json`) from a directory outside the repository. It verifies every file against `SHA256SUMS.txt`, checks the recorded counts, IDs, and document relationships, then runs the import in one PostgreSQL transaction. It preserves IDs, document codes, tag values, settings, and document/artist/exhibition links. It never imports users or sessions and never truncates or deletes data. Because it does not transfer files to Storage, it refuses a backup containing `/uploads/` references.
+`scripts/import-public-backup.js` accepts either a checksummed directory of JSON backup files (`artists.json`, `documents.json`, `exhibitions.json`, `timeline.json`, `settings.json`, and `metadata.json`) or a ZIP containing the public export at logical path `data/content-export.json`, optionally under one root folder. ZIP paths using Windows separators are normalized for validation. ZIP validation checks the archive directory and target local header, rejects duplicate or unsafe paths, encrypted/ZIP64 archives, malformed metadata, unsupported target compression, size mismatches, and CRC-32 failures. The export must have the expected public tables and fields; its entity counts, category/year/digitized statistics, IDs, and relation references are checked before any database connection. The ZIP's SQLite file and all other entries are ignored. The public export has no settings table, so no settings are imported from ZIP input. Both formats preserve entity IDs, document codes, tag values, and document/artist/exhibition links. The importer never imports users or sessions and never truncates or deletes data. Because it does not transfer files to Storage, it refuses data containing `/uploads/` references.
 
 The importer locks and checks **all nine application tables**, including `users` and `sessions`, and refuses to proceed unless each is empty. Any error before commit rolls back the transaction. It advances the `artists`, `exhibitions`, `documents`, and `timeline` serial sequences after inserting the preserved IDs. PostgreSQL schema setup remains a separate manual step; run `migrations/001_initial_schema.sql` in the Supabase SQL Editor first.
 
@@ -76,20 +76,20 @@ $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
 Add-Content -Encoding ascii (Join-Path $backup 'SHA256SUMS.txt') "$hash  recovered-document-0035.json"
 ```
 
-Run a local validation-only dry run first:
+Run a local validation-only dry run first. For the supplied ZIP, use `--backup-zip`; the older checksummed directory format remains available with `--backup-dir`:
 
 ```powershell
 npm install
-npm run import:backup -- --backup-dir 'C:\path\to\private\archive-migration-backup-2026-11-07'
+npm run import:backup -- --backup-zip 'C:\path\to\海南当代艺术文献网站_2026-11-06.zip'
 ```
 
-For the actual import, supply `DATABASE_URL` to the process via a trusted local secret manager or an already-secure terminal environment, then repeat with the explicit `--apply` flag. Do not put credentials in the command line, repository, backup, or chat. The apply command is irreversible once committed; verify that this is the intended empty Supabase project first. The importer refuses a non-empty schema and does not offer a force, truncate, or overwrite option.
+The default is a dry run and opens no database connection. For the actual import, supply `DATABASE_URL` to the process via a trusted local secret manager or an already-secure terminal environment, then repeat with the explicit `--apply` flag. Do not put credentials in the command line, repository, backup, or chat. The apply command is irreversible once committed; verify that this is the intended empty Supabase project first. The importer refuses a non-empty schema and does not offer a force, truncate, or overwrite option.
 
 Before switching production traffic:
 
 1. Arrange a maintenance window and take a verified, restorable backup of the authoritative production SQLite database and its upload files. Do not rely on a Render redeploy or local checkout as a backup; the current free service has no persistent disk configured, so local files may be lost when its instance is replaced.
 2. Keep the original backup unchanged and confirm that it can be read/restored before importing anything. Resolve which source contains the latest edits, settings, accounts, and assets; otherwise records or uploaded documents may be lost.
-3. Use the one-time importer only for the verified public API JSON backup described above. Production SQLite data, user accounts, and uploaded files need separate, reviewed migration steps. Preserve filenames/object keys for records that refer to `/uploads/<name>`, or update those record URLs during import. Verify record counts, relationships, login, and representative file URLs before directing traffic to the new database.
+3. Use the one-time importer only for the public JSON export or checksummed backup format described above. Production SQLite data, user accounts, settings absent from the public export, and uploaded files need separate, reviewed migration steps. Preserve filenames/object keys for records that refer to `/uploads/<name>`, or update those record URLs during import. Verify record counts, relationships, login, and representative file URLs before directing traffic to the new database.
 4. Keep the old service and backup available until the new deployment and rollback path have been verified. New edits made after the backup will not appear in the old copy unless they are migrated too.
 
 Local SQLite startup retains its existing behavior and inserts demo records when the database is empty. PostgreSQL startup does not seed demo archive records; it only creates an initial administrator if the users table is empty. The explicit `npm run seed` command can write demo records to either backend, so do not run it or use the admin cleanup operation against production without confirming its effect.

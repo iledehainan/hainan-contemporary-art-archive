@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { readContentExportFromZip } = require('./content-export-zip');
 
 const TABLES = [
   'users',
@@ -59,11 +60,16 @@ const FIELDS = {
 
 function parseArgs(args) {
   let backupDir;
+  let backupZip;
   let apply = false;
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--backup-dir' && args[i + 1]) {
       if (backupDir) throw new Error('Specify --backup-dir only once.');
       backupDir = args[i + 1];
+      i += 1;
+    } else if (args[i] === '--backup-zip' && args[i + 1]) {
+      if (backupZip) throw new Error('Specify --backup-zip only once.');
+      backupZip = args[i + 1];
       i += 1;
     } else if (args[i] === '--apply') {
       if (apply) throw new Error('Specify --apply only once.');
@@ -72,8 +78,14 @@ function parseArgs(args) {
       throw new Error(`Unknown or incomplete option: ${args[i]}`);
     }
   }
-  if (!backupDir) throw new Error('A private backup directory is required.');
-  return { backupDir: path.resolve(backupDir), apply };
+  if (Boolean(backupDir) === Boolean(backupZip)) {
+    throw new Error('Specify exactly one of --backup-dir or --backup-zip.');
+  }
+  return {
+    backupDir: backupDir ? path.resolve(backupDir) : null,
+    backupZip: backupZip ? path.resolve(backupZip) : null,
+    apply
+  };
 }
 
 async function readJson(directory, filename) {
@@ -180,42 +192,7 @@ function recordValues(row, fields, name) {
   return values;
 }
 
-async function loadAndValidateBackup(backupDir) {
-  const manifest = await fs.readFile(path.join(backupDir, 'SHA256SUMS.txt'), 'utf8');
-  const recoveredPath = path.join(backupDir, RECOVERED_FILE);
-  let recoveredExists = false;
-  try {
-    await fs.access(recoveredPath);
-    recoveredExists = true;
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
-  const checksums = new Map();
-  for (const line of manifest.split(/\r?\n/).filter(Boolean)) {
-    const match = line.match(/^([a-fA-F0-9]{64})\s+[* ]?([A-Za-z0-9_.-]+)$/);
-    if (!match || checksums.has(match[2])) throw new Error('Invalid or duplicate entry in SHA256SUMS.txt.');
-    checksums.set(match[2], match[1].toLowerCase());
-  }
-  const expectedFiles = recoveredExists ? [...FILES, RECOVERED_FILE] : FILES;
-  if (checksums.size !== expectedFiles.length || expectedFiles.some((file) => !checksums.has(file))) {
-    throw new Error('SHA256SUMS.txt must contain exactly the expected backup files, including the recovered record when present.');
-  }
-
-  for (const file of expectedFiles) {
-    const bytes = await fs.readFile(path.join(backupDir, file));
-    const actual = crypto.createHash('sha256').update(bytes).digest('hex');
-    if (actual !== checksums.get(file)) throw new Error(`SHA-256 verification failed for ${file}.`);
-  }
-
-  const [artists, documents, exhibitions, timeline, settings, metadata] = await Promise.all([
-    readJson(backupDir, 'artists.json'),
-    readJson(backupDir, 'documents.json'),
-    readJson(backupDir, 'exhibitions.json'),
-    readJson(backupDir, 'timeline.json'),
-    readJson(backupDir, 'settings.json'),
-    readJson(backupDir, 'metadata.json')
-  ]);
-  const recovered = recoveredExists ? await readJson(backupDir, RECOVERED_FILE) : null;
+function validateBackupData({ artists, documents, exhibitions, timeline, settings, metadata, recovered }) {
   assertRecordArray(artists, 'artists.json');
   assertRecordArray(documents, 'documents.json');
   assertRecordArray(exhibitions, 'exhibitions.json');
@@ -312,6 +289,314 @@ async function loadAndValidateBackup(backupDir) {
   };
 }
 
+async function loadAndValidateBackup(backupDir) {
+  const manifest = await fs.readFile(path.join(backupDir, 'SHA256SUMS.txt'), 'utf8');
+  const recoveredPath = path.join(backupDir, RECOVERED_FILE);
+  let recoveredExists = false;
+  try {
+    await fs.access(recoveredPath);
+    recoveredExists = true;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  const checksums = new Map();
+  for (const line of manifest.split(/\r?\n/).filter(Boolean)) {
+    const match = line.match(/^([a-fA-F0-9]{64})\s+[* ]?([A-Za-z0-9_.-]+)$/);
+    if (!match || checksums.has(match[2])) throw new Error('Invalid or duplicate entry in SHA256SUMS.txt.');
+    checksums.set(match[2], match[1].toLowerCase());
+  }
+  const expectedFiles = recoveredExists ? [...FILES, RECOVERED_FILE] : FILES;
+  if (checksums.size !== expectedFiles.length || expectedFiles.some((file) => !checksums.has(file))) {
+    throw new Error('SHA256SUMS.txt must contain exactly the expected backup files, including the recovered record when present.');
+  }
+
+  for (const file of expectedFiles) {
+    const bytes = await fs.readFile(path.join(backupDir, file));
+    const actual = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (actual !== checksums.get(file)) throw new Error(`SHA-256 verification failed for ${file}.`);
+  }
+
+  const [artists, documents, exhibitions, timeline, settings, metadata] = await Promise.all([
+    readJson(backupDir, 'artists.json'),
+    readJson(backupDir, 'documents.json'),
+    readJson(backupDir, 'exhibitions.json'),
+    readJson(backupDir, 'timeline.json'),
+    readJson(backupDir, 'settings.json'),
+    readJson(backupDir, 'metadata.json')
+  ]);
+  const recovered = recoveredExists ? await readJson(backupDir, RECOVERED_FILE) : null;
+  return validateBackupData({ artists, documents, exhibitions, timeline, settings, metadata, recovered });
+}
+
+function assertExactKeys(value, expectedKeys, name) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${name} must be an object.`);
+  }
+  const actualKeys = Object.keys(value).sort();
+  const requiredKeys = [...expectedKeys].sort();
+  if (actualKeys.length !== requiredKeys.length ||
+      actualKeys.some((key, index) => key !== requiredKeys[index])) {
+    throw new Error(`${name} has missing or unexpected fields.`);
+  }
+}
+
+function validateExportRecords(rows, table) {
+  assertRecordArray(rows, `tables.${table}`);
+  const numericFields = new Set(['id', 'birth_year', 'death_year', 'year', 'month', 'is_demo']);
+  const nullableNumericFields = new Set(['birth_year', 'death_year', 'year', 'month']);
+  const requiredFields = {
+    artists: ['name'],
+    exhibitions: ['title'],
+    documents: ['title', 'category'],
+    timeline: ['year', 'title']
+  }[table];
+  for (const row of rows) {
+    assertExactKeys(row, FIELDS[table], `tables.${table} record`);
+    if (requiredFields.some((field) => row[field] === null)) {
+      throw new Error(`tables.${table} is missing a required field.`);
+    }
+    for (const field of FIELDS[table]) {
+      const value = row[field];
+      if (field === 'is_demo') {
+        if (value !== 0 && value !== 1) throw new Error(`tables.${table}.${field} must be 0 or 1.`);
+      } else if (numericFields.has(field)) {
+        if (nullableNumericFields.has(field) && value === null) continue;
+        if (!Number.isSafeInteger(value) || (field === 'id' && value < 1)) {
+          throw new Error(`tables.${table}.${field} must be a valid integer.`);
+        }
+      } else if (field === 'tags') {
+        if (value !== null && typeof value !== 'string') {
+          throw new Error(`tables.${table}.tags must be a string or null.`);
+        }
+      } else if (value !== null && typeof value !== 'string') {
+        throw new Error(`tables.${table}.${field} must be a string or null.`);
+      }
+    }
+  }
+}
+
+function validateExportStats(stats, tables) {
+  assertExactKeys(stats, ['documents', 'artists', 'exhibitions', 'timeline', 'digitized', 'categories', 'years'], 'stats');
+  for (const table of ['documents', 'artists', 'exhibitions', 'timeline']) {
+    if (!Number.isSafeInteger(stats[table]) || stats[table] !== tables[table].length) {
+      throw new Error(`Export stats count mismatch for ${table}.`);
+    }
+  }
+  const categories = new Map();
+  for (const document of tables.documents) {
+    if (!document.category) throw new Error('Document category cannot be empty.');
+    categories.set(document.category, (categories.get(document.category) || 0) + 1);
+  }
+  if (!Array.isArray(stats.categories) || stats.categories.length !== categories.size) {
+    throw new Error('Export category statistics are missing or inconsistent.');
+  }
+  const reportedCategories = new Set();
+  for (const row of stats.categories) {
+    assertExactKeys(row, ['category', 'n'], 'stats.categories item');
+    if (typeof row.category !== 'string' || !Number.isSafeInteger(row.n) ||
+        row.n < 1 || reportedCategories.has(row.category) || categories.get(row.category) !== row.n) {
+      throw new Error('Export category statistics are inconsistent.');
+    }
+    reportedCategories.add(row.category);
+  }
+
+  const years = tables.documents.map((document) => document.year).filter(Number.isSafeInteger);
+  if (years.length === 0) throw new Error('Export document years are missing.');
+  assertExactKeys(stats.years, ['from', 'to'], 'stats.years');
+  const yearBounds = years.reduce((bounds, year) => ({
+    from: Math.min(bounds.from, year),
+    to: Math.max(bounds.to, year)
+  }), { from: years[0], to: years[0] });
+  if (stats.years.from !== yearBounds.from || stats.years.to !== yearBounds.to) {
+    throw new Error('Export year statistics are inconsistent.');
+  }
+  const digitized = tables.documents.filter((document) =>
+    ['cover', 'file_path'].some((field) => typeof document[field] === 'string' && document[field].length > 0)
+  ).length;
+  if (stats.digitized !== digitized) throw new Error('Export digitized count is inconsistent.');
+}
+
+function validateContentExport(exported) {
+  assertExactKeys(exported, ['exported_at', 'stats', 'tables'], 'content-export.json');
+  if (typeof exported.exported_at !== 'string' ||
+      !Number.isFinite(Date.parse(exported.exported_at)) ||
+      new Date(exported.exported_at).toISOString() !== exported.exported_at) {
+    throw new Error('content-export.json has an invalid exported_at timestamp.');
+  }
+
+  const tableNames = ['artists', 'exhibitions', 'documents', 'doc_artists', 'doc_exhibitions', 'timeline'];
+  assertExactKeys(exported.tables, tableNames, 'tables');
+  const tables = exported.tables;
+  for (const table of ['artists', 'exhibitions', 'documents', 'timeline']) {
+    validateExportRecords(tables[table], table);
+  }
+  assertRecordArray(tables.doc_artists, 'tables.doc_artists');
+  assertRecordArray(tables.doc_exhibitions, 'tables.doc_exhibitions');
+  for (const [rows, relation, fields] of [
+    [tables.doc_artists, 'doc_artists', ['document_id', 'artist_id']],
+    [tables.doc_exhibitions, 'doc_exhibitions', ['document_id', 'exhibition_id']]
+  ]) {
+    for (const row of rows) {
+      assertExactKeys(row, fields, `tables.${relation} record`);
+      for (const field of fields) {
+        if (!Number.isSafeInteger(row[field]) || row[field] < 1) {
+          throw new Error(`tables.${relation}.${field} must be a valid id.`);
+        }
+      }
+    }
+  }
+  validateExportStats(exported.stats, tables);
+
+  const artistIds = assertUniqueIds(tables.artists, 'artists');
+  const exhibitionIds = assertUniqueIds(tables.exhibitions, 'exhibitions');
+  assertUniqueIds(tables.documents, 'documents');
+  assertUniqueIds(tables.timeline, 'timeline');
+  const documentsById = new Map(tables.documents.map((document) => [document.id, {
+    ...document,
+    tags: document.tags == null ? [] : document.tags.split(','),
+    artists: [],
+    exhibitions: []
+  }]));
+  for (const [rows, relation, relatedIds, relatedField] of [
+    [tables.doc_artists, 'doc_artists', artistIds, 'artist_id'],
+    [tables.doc_exhibitions, 'doc_exhibitions', exhibitionIds, 'exhibition_id']
+  ]) {
+    const seen = new Set();
+    for (const link of rows) {
+      const document = documentsById.get(link.document_id);
+      if (!document || !relatedIds.has(link[relatedField])) {
+        throw new Error(`tables.${relation} contains a relationship to a missing record.`);
+      }
+      const pair = `${link.document_id}:${link[relatedField]}`;
+      if (seen.has(pair)) throw new Error(`tables.${relation} contains a duplicate relationship.`);
+      seen.add(pair);
+      document[relation === 'doc_artists' ? 'artists' : 'exhibitions'].push(link[relatedField]);
+    }
+  }
+
+  const metadata = {
+    document_count: tables.documents.length,
+    artist_count: tables.artists.length,
+    exhibition_count: tables.exhibitions.length,
+    timeline_count: tables.timeline.length,
+    settings_count: 0
+  };
+  return validateBackupData({
+    artists: tables.artists.map((row) => ({ ...row, tags: row.tags == null ? [] : row.tags.split(',') })),
+    documents: [...documentsById.values()],
+    exhibitions: tables.exhibitions.map((row) => ({ ...row, tags: row.tags == null ? [] : row.tags.split(',') })),
+    timeline: tables.timeline,
+    settings: {},
+    metadata,
+    recovered: null
+  });
+}
+
+function assertNoDuplicateJsonKeys(text) {
+  let offset = 0;
+  const skipWhitespace = () => {
+    while (/\s/.test(text[offset] || '')) offset += 1;
+  };
+  const readString = () => {
+    const start = offset;
+    offset += 1;
+    let escaped = false;
+    while (offset < text.length) {
+      const character = text[offset];
+      offset += 1;
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        return JSON.parse(text.slice(start, offset));
+      }
+    }
+    throw new Error('Invalid JSON string.');
+  };
+  const scanValue = (depth) => {
+    if (depth > 128) throw new Error('JSON nesting is too deep.');
+    skipWhitespace();
+    if (text[offset] === '{') {
+      offset += 1;
+      skipWhitespace();
+      const keys = new Set();
+      if (text[offset] === '}') {
+        offset += 1;
+        return;
+      }
+      while (offset < text.length) {
+        skipWhitespace();
+        if (text[offset] !== '"') throw new Error('Invalid JSON object.');
+        const key = readString();
+        if (keys.has(key)) throw new Error('JSON contains duplicate object keys.');
+        keys.add(key);
+        skipWhitespace();
+        if (text[offset] !== ':') throw new Error('Invalid JSON object.');
+        offset += 1;
+        scanValue(depth + 1);
+        skipWhitespace();
+        if (text[offset] === '}') {
+          offset += 1;
+          return;
+        }
+        if (text[offset] !== ',') throw new Error('Invalid JSON object.');
+        offset += 1;
+      }
+      throw new Error('Invalid JSON object.');
+    }
+    if (text[offset] === '[') {
+      offset += 1;
+      skipWhitespace();
+      if (text[offset] === ']') {
+        offset += 1;
+        return;
+      }
+      while (offset < text.length) {
+        scanValue(depth + 1);
+        skipWhitespace();
+        if (text[offset] === ']') {
+          offset += 1;
+          return;
+        }
+        if (text[offset] !== ',') throw new Error('Invalid JSON array.');
+        offset += 1;
+      }
+      throw new Error('Invalid JSON array.');
+    }
+    if (text[offset] === '"') {
+      readString();
+      return;
+    }
+    const start = offset;
+    while (offset < text.length && !/[\s,[\]{}]/.test(text[offset])) offset += 1;
+    if (start === offset) throw new Error('Invalid JSON value.');
+  };
+
+  scanValue(0);
+  skipWhitespace();
+  if (offset !== text.length) throw new Error('Invalid JSON.');
+}
+
+async function loadAndValidateContentExportZip(zipPath) {
+  const bytes = await readContentExportFromZip(zipPath);
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('data/content-export.json is not valid UTF-8.');
+  }
+  let exported;
+  try {
+    assertNoDuplicateJsonKeys(text);
+    exported = JSON.parse(text);
+  } catch (error) {
+    if (error.message === 'JSON contains duplicate object keys.') throw error;
+    throw new Error('data/content-export.json is not valid JSON.');
+  }
+  return validateContentExport(exported);
+}
+
 async function importBackup(data) {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL must be supplied through the process environment; credentials are never read from a file.');
@@ -385,9 +670,13 @@ async function insertRow(client, table, fields, row) {
 }
 
 async function main(args) {
-  const { backupDir, apply } = parseArgs(args);
-  const data = await loadAndValidateBackup(backupDir);
-  console.log('Backup verified: SHA-256, metadata counts, IDs, and relationships.');
+  const { backupDir, backupZip, apply } = parseArgs(args);
+  const data = backupZip
+    ? await loadAndValidateContentExportZip(backupZip)
+    : await loadAndValidateBackup(backupDir);
+  console.log(backupZip
+    ? 'ZIP verified: archive structure, export CRC-32, metadata counts, IDs, and relationships.'
+    : 'Backup verified: SHA-256, metadata counts, IDs, and relationships.');
   console.log(`Records to import: ${JSON.stringify(data.counts)}; ` +
     `recovered records=${data.recoveredDocumentCount}; ` +
     `document-artist links=${data.links.artists.length}; ` +
@@ -407,4 +696,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadAndValidateBackup, parseArgs };
+module.exports = {
+  loadAndValidateBackup,
+  loadAndValidateContentExportZip,
+  parseArgs,
+  validateContentExport
+};
